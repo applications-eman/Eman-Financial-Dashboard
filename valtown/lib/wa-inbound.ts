@@ -50,7 +50,12 @@ export async function processInboundMessage(store: Store, msg: Record<string, an
       mode, flowId, flowToken: makeFlowToken(from, appSecret),
       body: await template(store, "welcome", lang, { name: user.name }), cta: lang === "ar" ? "تسجيل فاتورة" : "Record invoice",
     }, deps);
-    return ok ? "flow_sent" : "flow_send_failed";
+    if (!ok) {
+      // never leave the person in silence: explain and point to the channels that work without the form
+      await sendText(from, "النموذج غير متاح حالياً. أرسل نص رمز QR (Base64) أو صورة الفاتورة هنا مباشرة. / The form is not available right now. Send the invoice QR text, or a photo of the invoice, right here instead.", deps);
+      return "flow_send_failed";
+    }
+    return "flow_sent";
   }
 
   if (!(await flagEnabled(store, "whatsapp_text"))) { return "disabled"; }
