@@ -10,12 +10,13 @@ import { type AlertDraft, DEFAULT_HOURS, DEFAULT_ZATCA, mergeRules, type SalesRo
 import { getSetting } from "./settings.ts";
 import type { Row, Store } from "./store.ts";
 
-export interface SyncSettings { interval_minutes: number; history_months: number; batch_size: number; backfill_batch?: number; pause_ms: number; max_run_seconds: number }
+export interface SyncSettings { interval_minutes: number; history_months: number; history_from?: string; batch_size: number; backfill_batch?: number; pause_ms: number; max_run_seconds: number }
 export const DEFAULT_SYNC: SyncSettings = { interval_minutes: 5, history_months: 12, batch_size: 400, pause_ms: 400, max_run_seconds: 25 };
 
 const MOVE_FIELDS = ["name", "move_type", "state", "invoice_date", "create_date", "write_date", "write_uid", "invoice_user_id", "create_uid", "partner_id", "amount_untaxed", "amount_tax", "amount_total", "payment_state", "invoice_origin", "ref", "reversed_entry_id", "edi_state", "l10n_sa_uuid", "l10n_sa_chain_index", "l10n_sa_confirmation_datetime", "edi_error_message"];
 const MOVE_TYPES = ["out_invoice", "out_refund"];
 const HISTORIC_MS = 48 * 3_600_000;
+const DEFAULT_HISTORY_FROM = "2025-10-01"; // VAT history starts with 2025 Q4
 const BACKFILL_BATCH = 1000; // history import: bigger batches, fewer round trips
 
 export const odooTs = (iso: string) => iso.replace("T", " ").replace(/\..*$/, "").replace("Z", ""); // "2026-10-15 08:00:00"
@@ -125,40 +126,64 @@ export async function runSyncCycle(store: Store, odoo: OdooReader, opts: CycleOp
   const res: CycleResult = { fetched: 0, upserted: 0, alerts: 0, caughtUp: false };
   try {
     const fields = await availableFields(odoo);
-    let cursor = await getState<{ write_at: string; id: number }>(store, "invoice_cursor");
-    if (!cursor) {
-      const from = new Date(started.getTime() - cfg.history_months * 30.5 * 86_400_000);
-      cursor = { write_at: odooTs(from.toISOString()), id: 0 };
-    }
+    // Phase A (first import): walk by record id, so a mass update that gave thousands of documents the same write_date can never stall it.
+    // Phase B (afterwards): changes since the last seen write_date (inclusive, so nothing at the boundary is missed), paged by offset.
+    const histFrom = cfg.history_from ?? DEFAULT_HISTORY_FROM;
+    let bf = await getState<{ last_id: number; start_ts: string; done?: boolean }>(store, "backfill");
+    if (!bf) bf = { last_id: 0, start_ts: odooTs(new Date(started.getTime() - 10 * 60_000).toISOString()) };
+    let inc = await getState<{ from: string; offset: number }>(store, "inc_cursor");
+    let maxWrite: string | null = null;
     const partners = new Map<number, { vat: string | null; name: string | null }>();
     const pending: { row: SalesRow; prev: SalesRow | null }[] = [];
     const deadline = started.getTime() + cfg.max_run_seconds * 1000;
+    const oldCut = started.getTime() - HISTORIC_MS;
 
     while (true) {
-      const domain: Domain = [["move_type", "in", MOVE_TYPES], "|", ["write_date", ">", cursor.write_at], "&", ["write_date", "=", cursor.write_at], ["id", ">", cursor.id]];
-      const backfilling = Date.parse(isoFromOdoo(cursor.write_at) ?? "") < started.getTime() - HISTORIC_MS;
-      const limit = backfilling ? (cfg.backfill_batch ?? BACKFILL_BATCH) : cfg.batch_size;
-      const batch = await odoo.searchRead("account.move", domain, fields, { limit, order: "write_date asc, id asc" });
-      if (!batch.length) { res.caughtUp = true; break; }
-      res.fetched += batch.length;
-      await loadPartners(odoo, batch.map((b) => m2o(b.partner_id)[0]).filter((x): x is number => x != null), partners);
-      const mapped = batch.map((b) => mapMove(b, partners));
-      const prevRows = new Map<number, SalesRow>();
-      const ids = mapped.map((m) => m.odoo_id);
-      // old documents (older than 48 h by last change) never raise event alerts, so skip the "previous version" lookup for them
-      const allOld = batch.every((b) => Date.parse(isoFromOdoo(b.write_date) ?? "") < started.getTime() - HISTORIC_MS);
-      if (!allOld) for (let i = 0; i < ids.length; i += 100) for (const p of (await store.select("sales_invoices", { filters: [["odoo_id", "in", ids.slice(i, i + 100)]], limit: 100 })).rows) prevRows.set(Number(p.odoo_id), p as SalesRow);
-      res.upserted += await store.upsertMany("sales_invoices", mapped.map(dbRow), "odoo_id");
-      for (const row of mapped) {
-        const prev = prevRows.get(row.odoo_id) ?? null;
-        const fresh = Date.parse(row.odoo_created_at ?? "") > started.getTime() - HISTORIC_MS;
-        const changed = prev != null && (prev.state !== row.state || prev.kind !== row.kind);
-        if (fresh || changed) pending.push({ row, prev }); // history import never raises event alerts
+      let limit: number;
+      let batch: Record<string, any>[];
+      if (!bf.done) {
+        limit = cfg.backfill_batch ?? BACKFILL_BATCH;
+        const domain: Domain = [["move_type", "in", MOVE_TYPES], "|", ["invoice_date", ">=", histFrom], ["invoice_date", "=", false], ["id", ">", bf.last_id]];
+        batch = await odoo.searchRead("account.move", domain, fields, { limit, order: "id asc" });
+      } else {
+        inc = inc ?? { from: bf.start_ts, offset: 0 };
+        limit = cfg.batch_size;
+        const domain: Domain = [["move_type", "in", MOVE_TYPES], ["write_date", ">=", inc.from]];
+        batch = await odoo.searchRead("account.move", domain, fields, { limit, offset: inc.offset, order: "write_date asc, id asc" });
       }
-      const last = batch[batch.length - 1];
-      cursor = { write_at: String(last.write_date), id: Number(last.id) };
-      await setState(store, "invoice_cursor", cursor);
-      if (batch.length < limit) { res.caughtUp = true; break; }
+      res.fetched += batch.length;
+      if (batch.length) {
+        await loadPartners(odoo, batch.map((b) => m2o(b.partner_id)[0]).filter((x): x is number => x != null), partners);
+        const mapped = batch.map((b) => mapMove(b, partners));
+        const prevRows = new Map<number, SalesRow>();
+        const ids = mapped.map((m) => m.odoo_id);
+        // old documents (not changed for 48 h) never raise event alerts, so skip the "previous version" lookup for them
+        const allOld = batch.every((b) => Date.parse(isoFromOdoo(b.write_date) ?? "") < oldCut);
+        if (!allOld) for (let i = 0; i < ids.length; i += 100) for (const p of (await store.select("sales_invoices", { filters: [["odoo_id", "in", ids.slice(i, i + 100)]], limit: 100 })).rows) prevRows.set(Number(p.odoo_id), p as SalesRow);
+        res.upserted += await store.upsertMany("sales_invoices", mapped.map(dbRow), "odoo_id");
+        for (const row of mapped) {
+          const prev = prevRows.get(row.odoo_id) ?? null;
+          if (prev && Date.parse(prev.odoo_write_at ?? "") === Date.parse(row.odoo_write_at ?? "")) continue; // unchanged (boundary re-read)
+          const fresh = Date.parse(row.odoo_created_at ?? "") > oldCut;
+          const changed = prev != null && (prev.state !== row.state || prev.kind !== row.kind);
+          if (fresh || changed) pending.push({ row, prev }); // history import never raises event alerts
+        }
+        for (const b of batch) if (!maxWrite || String(b.write_date) > maxWrite) maxWrite = String(b.write_date);
+      }
+      if (!bf.done) {
+        if (batch.length) bf.last_id = Number(batch[batch.length - 1].id);
+        if (batch.length < limit) bf.done = true;
+        await setState(store, "backfill", bf);
+      } else if (inc) {
+        if (batch.length < limit) {
+          inc = { from: maxWrite && maxWrite > inc.from ? maxWrite : inc.from, offset: 0 };
+          await setState(store, "inc_cursor", inc);
+          res.caughtUp = true;
+          break;
+        }
+        inc = { from: inc.from, offset: inc.offset + batch.length };
+        await setState(store, "inc_cursor", inc);
+      }
       if (clock().getTime() >= deadline) break;
       await sleep(cfg.pause_ms);
     }

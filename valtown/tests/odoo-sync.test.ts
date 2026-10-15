@@ -12,21 +12,45 @@ const mv = (id: number, over: Move = {}): Move => ({
   reversed_entry_id: false, edi_state: "sent", l10n_sa_uuid: "u" + id, l10n_sa_chain_index: id, l10n_sa_confirmation_datetime: "2026-10-15 08:01:00", edi_error_message: false, ...over,
 });
 
+
+/** Minimal Odoo domain evaluator (prefix | and implicit &, comparisons on plain fields). */
+function evalDomain(domain: any[]): (m: Move) => boolean {
+  let i = 0;
+  const term = (): ((m: Move) => boolean) => {
+    const t = domain[i++];
+    if (t === "|") { const a = term(); const b = term(); return (m) => a(m) || b(m); }
+    if (t === "&") { const a = term(); const b = term(); return (m) => a(m) && b(m); }
+    const [f, op, v] = t as [string, string, any];
+    return (m) => {
+      const x = m[f];
+      switch (op) {
+        case "in": return v.includes(x);
+        case "=": return x === v;
+        case ">": return x !== false && x > v;
+        case ">=": return x !== false && x >= v;
+        default: throw new Error(`op ${op}`);
+      }
+    };
+  };
+  const parts: ((m: Move) => boolean)[] = [];
+  while (i < domain.length) parts.push(term());
+  return (m) => parts.every((p) => p(m));
+}
+
 /** Fake Odoo: understands only the sync's keyset domain. Records every call. */
 function fakeOdoo(moves: Move[], partners: Record<number, { name: string; vat: string | false }> = {}) {
   const calls: string[] = [];
   const o: any = {
     calls,
     async execute(_m: string, method: string) { calls.push(method); return Object.fromEntries(Object.keys(moves[0] ?? mv(1)).map((k) => [k, {}])); },
-    async searchRead(model: string, domain: any[], _f: string[], opts: { limit?: number }) {
+    async searchRead(_model: string, domain: any[], _f: string[], opts: { limit?: number; offset?: number; order?: string }) {
       calls.push("search_read");
-      const [, , , , gtDate, , eqDate, gtId] = [domain[0], domain[1], domain[2], domain[3], domain[4], domain[5], domain[6], domain[7]]; // eslint-disable-line
-      const wd = (domain[2] as any)[2] as string, id = (domain[4] as any)[2] as number;
-      void gtDate; void eqDate; void gtId;
-      return moves
-        .filter((m) => m.write_date > wd || (m.write_date === wd && m.id > id))
-        .sort((a, b) => (a.write_date === b.write_date ? a.id - b.id : a.write_date < b.write_date ? -1 : 1))
-        .slice(0, opts.limit ?? 200).map((m) => ({ ...m }));
+      const test = evalDomain(domain);
+      const rows = moves.filter(test);
+      const byId = opts.order === "id asc";
+      rows.sort((a, b) => (byId ? a.id - b.id : a.write_date === b.write_date ? a.id - b.id : a.write_date < b.write_date ? -1 : 1));
+      const off = opts.offset ?? 0;
+      return rows.slice(off, off + (opts.limit ?? 200)).map((m) => ({ ...m }));
     },
     async searchCount() { return moves.length; },
     async read(model: string, ids: number[]) {
@@ -62,8 +86,8 @@ test("sync imports invoices, derives B2B/B2C from the partner VAT and advances t
   assert.equal(rows.find((x) => x.odoo_id === 1)!.customer_vat, "300000000000003");
   assert.equal(rows.find((x) => x.odoo_id === 2)!.customer_vat, null);
   assert.equal(rows.find((x) => x.odoo_id === 3)!.kind, "credit_note");
-  const cur = s.tables.sync_state.find((x) => x.key === "invoice_cursor")!.value;
-  assert.equal(cur.id, 3);
+  const cur = s.tables.sync_state.find((x) => x.key === "backfill")!.value;
+  assert.equal(cur.last_id, 3);
   assert.ok(s.tables.alerts.some((a) => a.rule_key === "credit_any"), "credit note raises an alert");
   const run = s.tables.sync_runs[0];
   assert.ok(run.finished_at && run.fetched === 3);
@@ -155,4 +179,32 @@ test("client retries on 429 with back-off, then succeeds", async () => {
   const c = new OdooClient({ url: "https://x.test", db: "d", login: "l", secret: "s" }, { f, sleep: async (ms) => { sleeps.push(ms); }, minGapMs: 0 });
   assert.equal(await c.authenticate(), 7);
   assert.ok(sleeps.some((x) => x >= 1000));
+});
+
+test("a mass update (thousands of documents with the same write_date) is imported completely", async () => {
+  const s = mem();
+  const moves = Array.from({ length: 35 }, (_, i) => mv(i + 1, { write_date: "2026-05-30 16:04:46", invoice_date: "2026-01-10", create_date: "2026-01-10 10:00:00" }));
+  await s.upsert("app_settings", { key: "sync_settings", value: { batch_size: 10, backfill_batch: 10, pause_ms: 0, max_run_seconds: 25 } }, "key");
+  const r = await runSyncCycle(s, fakeOdoo(moves), base);
+  assert.equal(s.tables.sales_invoices.length, 35);
+  assert.ok(r.caughtUp);
+});
+
+test("documents older than the history start are not imported; undated drafts are", async () => {
+  const s = mem();
+  const moves = [mv(1, { invoice_date: "2025-01-19" }), mv(2, { invoice_date: "2025-11-02" }), mv(3, { invoice_date: false, state: "draft", name: "/" })];
+  await runSyncCycle(s, fakeOdoo(moves), base);
+  assert.deepEqual(s.tables.sales_invoices.map((r) => r.odoo_id).sort(), [2, 3]);
+});
+
+test("after the import, later changes are picked up and nothing is lost at the boundary", async () => {
+  const s = mem();
+  const moves = [mv(1, { write_date: "2026-10-01 08:00:00" })];
+  await runSyncCycle(s, fakeOdoo(moves), base);
+  moves.push(mv(2, { write_date: "2026-10-15 08:55:00" }), mv(3, { write_date: "2026-10-15 08:55:00" }));
+  await runSyncCycle(s, fakeOdoo(moves), base);
+  assert.equal(s.tables.sales_invoices.length, 3);
+  moves.push(mv(4, { write_date: "2026-10-15 08:58:00" }));
+  await runSyncCycle(s, fakeOdoo(moves), base);
+  assert.equal(s.tables.sales_invoices.length, 4);
 });
