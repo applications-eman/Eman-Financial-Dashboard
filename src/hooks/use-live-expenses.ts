@@ -39,7 +39,8 @@ export function useLiveExpenses({ days = 62, onInsert }: Options = {}) {
           supabase
             .from(expenseTable(s))
             .select("*")
-            .gte("invoice_date", since)
+            // invoices dated in the window OR captured in the window (back-dated invoices still show as new activity)
+            .or(`invoice_date.gte.${since},created_at.gte.${since}`)
             .order("invoice_date", { ascending: false })
             .limit(5000),
         ),
