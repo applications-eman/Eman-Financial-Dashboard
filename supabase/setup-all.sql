@@ -1,5 +1,5 @@
 -- Eman Expenses: complete database setup (generated: concatenation of supabase/migrations/*.sql in order).
--- Paste ALL of this into Supabase > SQL Editor > New query, then press Run. Safe to run more than once.
+-- For a NEW project: paste ALL of this into Supabase > SQL Editor > New query and press Run. Safe to run more than once.
 
 -- ===== supabase/migrations/20261015000001_core_schema.sql =====
 -- Core schema: expense tables (bakery + grocery), support tables, triggers.
@@ -310,3 +310,455 @@ begin
   return rid;
 end $$;
 revoke all on function public.bootstrap_admin(text, text, text) from public, anon, authenticated;
+
+-- ===== supabase/migrations/20261016000001_revenue_alerts_vat.sql =====
+-- Revenue (Odoo sales), ZATCA monitoring, alerts, VAT return, accounts-staff role, purchases without VAT number.
+-- Safe to run more than once.
+
+-- ---------------------------------------------------------------- roles
+alter table public.app_users drop constraint if exists app_users_role_check;
+alter table public.app_users add constraint app_users_role_check check (role in ('admin', 'staff', 'accounts'));
+
+create or replace function public.is_reviewer() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.app_users
+    where auth_user_id = auth.uid() and role in ('admin', 'accounts') and active
+  )
+$$;
+create or replace function public.is_accounts() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.app_users
+    where auth_user_id = auth.uid() and role = 'accounts' and active
+  )
+$$;
+revoke all on function public.is_reviewer() from public, anon;
+revoke all on function public.is_accounts() from public, anon;
+grant execute on function public.is_reviewer() to authenticated, service_role;
+grant execute on function public.is_accounts() to authenticated, service_role;
+
+-- ---------------------------------------------------------------- purchases: allow invoices without a valid 15-digit VAT number
+-- They are stored and reported, but never counted as input VAT (vat_valid = false).
+do $$
+declare t text;
+begin
+  foreach t in array array['bakery_expenses', 'grocery_expenses'] loop
+    execute format('alter table public.%I alter column vat_number drop not null', t);
+    execute format('alter table public.%I drop constraint if exists %I', t, t || '_vat_number_chk');
+    execute format($f$alter table public.%I add column if not exists vat_valid boolean
+      generated always as (vat_number is not null and vat_number ~ '^[0-9]{15}$') stored$f$, t);
+  end loop;
+end $$;
+
+create or replace function public.compute_expense_warnings() returns trigger
+language plpgsql set search_path = public as $$
+declare
+  rate numeric := 0.15;
+  net numeric;
+  expected numeric;
+  w text[] := '{}';
+begin
+  begin
+    select (value #>> '{}')::numeric into rate from public.app_settings where key = 'vat_rate';
+  exception when others then rate := 0.15;
+  end;
+  rate := coalesce(rate, 0.15);
+  net := new.total_amount - new.vat_amount;
+  expected := round(net * rate, 2);
+  if new.vat_number is null or new.vat_number !~ '^[0-9]{15}$' then
+    w := array_append(w, 'vat_number_invalid');   -- shown in reports, excluded from input VAT
+  end if;
+  if net <= 0 and new.vat_amount > 0 then
+    w := array_append(w, 'vat_rate_mismatch');
+  elsif abs(new.vat_amount - expected) > (0.05 + 0.005 * net) then
+    w := array_append(w, 'vat_rate_mismatch');
+  end if;
+  if new.invoice_date > now() + interval '1 day' then
+    w := array_append(w, 'future_date');
+  end if;
+  new.warnings := w;
+  return new;
+end $$;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['bakery_expenses', 'grocery_expenses'] loop
+    execute format('drop trigger if exists trg_warnings on public.%I', t);
+    execute format('create trigger trg_warnings before insert or update of total_amount, vat_amount, invoice_date, vat_number on public.%I for each row execute function public.compute_expense_warnings()', t);
+  end loop;
+end $$;
+
+-- ---------------------------------------------------------------- sales (read-only copy of Odoo customer invoices / credit notes)
+create table if not exists public.sales_invoices (
+  odoo_id bigint primary key,
+  section text not null default 'bakery' check (section in ('bakery', 'grocery')),
+  number text,
+  kind text not null check (kind in ('invoice', 'credit_note')),
+  state text not null,
+  invoice_date date,
+  odoo_created_at timestamptz,
+  odoo_write_at timestamptz,
+  salesman_id integer,
+  salesman_name text,
+  created_by_id integer,
+  created_by_name text,
+  customer_id integer,
+  customer_name text,
+  customer_vat text,
+  segment text generated always as (case when coalesce(btrim(customer_vat), '') <> '' then 'B2B' else 'B2C' end) stored,
+  amount_untaxed numeric(14,2) not null default 0,
+  amount_tax numeric(14,2) not null default 0,
+  amount_total numeric(14,2) not null default 0,
+  payment_state text,
+  origin text,
+  ref text,
+  reversed_odoo_id bigint,
+  reversed_number text,
+  zatca_state text,
+  zatca_uuid text,
+  zatca_chain_index bigint,
+  zatca_confirmed_at timestamptz,
+  zatca_error text,
+  synced_at timestamptz not null default now()
+);
+create index if not exists sales_invoices_date_idx on public.sales_invoices (invoice_date);
+create index if not exists sales_invoices_salesman_idx on public.sales_invoices (salesman_id, invoice_date);
+create index if not exists sales_invoices_kind_idx on public.sales_invoices (kind, invoice_date);
+create index if not exists sales_invoices_write_idx on public.sales_invoices (odoo_write_at);
+create index if not exists sales_invoices_zatca_idx on public.sales_invoices (zatca_state) where state = 'posted';
+create index if not exists sales_invoices_created_idx on public.sales_invoices (odoo_created_at);
+
+-- Grocery is sold in a system without an API: totals are entered by hand for now (all B2C).
+create table if not exists public.grocery_sales_daily (
+  sale_date date primary key,
+  net_sales numeric(14,2) not null default 0 check (net_sales >= 0),
+  vat_amount numeric(14,2) not null default 0 check (vat_amount >= 0),
+  credit_net numeric(14,2) not null default 0 check (credit_net >= 0),
+  credit_vat numeric(14,2) not null default 0 check (credit_vat >= 0),
+  invoice_count integer not null default 0 check (invoice_count >= 0),
+  notes text,
+  entered_by text,
+  updated_at timestamptz
+);
+
+create table if not exists public.vat_payments (
+  id uuid primary key default gen_random_uuid(),
+  period_year integer not null check (period_year between 2020 and 2100),
+  period_quarter integer not null check (period_quarter between 1 and 4),
+  amount_paid numeric(14,2) not null check (amount_paid >= 0),
+  paid_on date,
+  reference text,
+  notes text,
+  created_by text,
+  created_at timestamptz not null default now()
+);
+create index if not exists vat_payments_period_idx on public.vat_payments (period_year, period_quarter);
+
+-- ---------------------------------------------------------------- alerts, sync log, verification log
+create table if not exists public.alerts (
+  id bigint generated always as identity primary key,
+  rule_key text not null,
+  severity text not null default 'warning' check (severity in ('info', 'warning', 'critical')),
+  title text not null,
+  detail jsonb not null default '{}',
+  section text not null default 'bakery',
+  salesman_name text,
+  odoo_id bigint,
+  amount numeric(14,2),
+  fingerprint text not null unique,
+  status text not null default 'open' check (status in ('open', 'acknowledged', 'resolved')),
+  note text,
+  handled_by text,
+  handled_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists alerts_status_idx on public.alerts (status, created_at desc);
+create index if not exists alerts_rule_idx on public.alerts (rule_key, created_at desc);
+
+create table if not exists public.sync_state (
+  key text primary key,
+  value jsonb not null,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.sync_runs (
+  id bigint generated always as identity primary key,
+  kind text not null default 'incremental',
+  started_at timestamptz not null default now(),
+  finished_at timestamptz,
+  fetched integer not null default 0,
+  upserted integer not null default 0,
+  alerts_created integer not null default 0,
+  error text,
+  details jsonb
+);
+create index if not exists sync_runs_started_idx on public.sync_runs (started_at desc);
+
+create table if not exists public.verification_runs (
+  id bigint generated always as identity primary key,
+  kind text not null,
+  period_from date,
+  period_to date,
+  ok boolean not null,
+  result jsonb not null,
+  run_by text,
+  created_at timestamptz not null default now()
+);
+create index if not exists verification_runs_created_idx on public.verification_runs (created_at desc);
+
+-- audit trail for the data an admin edits by hand
+do $$
+declare t text;
+begin
+  foreach t in array array['grocery_sales_daily', 'vat_payments'] loop
+    execute format('drop trigger if exists trg_audit on public.%I', t);
+    execute format('create trigger trg_audit after insert or update or delete on public.%I for each row execute function public.audit_trigger()', t);
+  end loop;
+  execute 'drop trigger if exists trg_audit_alerts on public.alerts';
+  execute 'create trigger trg_audit_alerts after update or delete on public.alerts for each row execute function public.audit_trigger()';
+end $$;
+create or replace function public.audit_trigger() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  actor text; b jsonb; a jsonb; rid text;
+begin
+  begin
+    actor := (current_setting('request.headers', true)::jsonb) ->> 'x-actor';
+  exception when others then actor := null;
+  end;
+  actor := coalesce(actor, nullif(current_setting('app.actor', true), ''), auth.uid()::text, current_user);
+  if tg_op in ('UPDATE', 'DELETE') then
+    b := to_jsonb(old);
+    if b ? 'token_hash' then b := (b - 'token_hash') || jsonb_build_object('token_fingerprint', left(md5(coalesce(b ->> 'token_hash', '')), 8)); end if;
+  end if;
+  if tg_op in ('UPDATE', 'INSERT') then
+    a := to_jsonb(new);
+    if a ? 'token_hash' then a := (a - 'token_hash') || jsonb_build_object('token_fingerprint', left(md5(coalesce(a ->> 'token_hash', '')), 8)); end if;
+  end if;
+  if tg_op = 'UPDATE' and b = a then return new; end if;
+  rid := coalesce((coalesce(a, b)) ->> 'id', (coalesce(a, b)) ->> 'key', (coalesce(a, b)) ->> 'sale_date');
+  insert into public.audit_log (actor, action, table_name, record_id, before, after)
+  values (actor, tg_op, tg_table_name, rid, b, a);
+  return coalesce(new, old);
+end $$;
+
+-- ---------------------------------------------------------------- row level security
+do $$
+declare t text;
+begin
+  foreach t in array array['sales_invoices', 'grocery_sales_daily', 'vat_payments', 'alerts', 'sync_state', 'sync_runs', 'verification_runs'] loop
+    execute format('alter table public.%I enable row level security', t);
+    execute format('alter table public.%I force row level security', t);
+    execute format('revoke all on public.%I from anon, authenticated', t);
+    execute format('grant all on public.%I to service_role', t);
+    execute format('grant select on public.%I to authenticated', t);
+  end loop;
+  foreach t in array array['grocery_sales_daily', 'vat_payments', 'verification_runs'] loop
+    execute format('drop policy if exists admin_select on public.%I', t);
+    execute format('create policy admin_select on public.%I for select to authenticated using (public.is_admin())', t);
+  end loop;
+  foreach t in array array['alerts', 'sync_state', 'sync_runs'] loop
+    execute format('drop policy if exists reviewer_select on public.%I', t);
+    execute format('create policy reviewer_select on public.%I for select to authenticated using (public.is_reviewer())', t);
+  end loop;
+end $$;
+grant usage, select on all sequences in schema public to service_role;
+
+-- Sales: admins see everything; accounts staff see only credit notes and ZATCA problem documents (monitoring).
+drop policy if exists admin_select on public.sales_invoices;
+drop policy if exists accounts_monitor on public.sales_invoices;
+create policy admin_select on public.sales_invoices for select to authenticated using (public.is_admin());
+create policy accounts_monitor on public.sales_invoices for select to authenticated
+  using (public.is_accounts() and (kind = 'credit_note' or state <> 'posted' or zatca_state is distinct from 'sent'));
+
+-- ---------------------------------------------------------------- aggregate functions (security invoker => RLS applies)
+create or replace function public.revenue_summary(
+  p_from date, p_to date, p_group text default 'day', p_segment text default null, p_section text default 'bakery'
+) returns table (
+  bucket text, label text,
+  invoice_count bigint, net_sales numeric, vat numeric, total numeric,
+  credit_count bigint, credit_net numeric, credit_vat numeric, credit_total numeric,
+  net_after_credit numeric, vat_after_credit numeric, total_after_credit numeric
+) language sql stable set search_path = public as $$
+  with base as (
+    select
+      case p_group
+        when 'month' then to_char(invoice_date, 'YYYY-MM')
+        when 'salesman' then coalesce(salesman_id::text, '0')
+        when 'customer' then coalesce(customer_id::text, '0')
+        when 'segment' then segment
+        else invoice_date::text
+      end as b,
+      case p_group
+        when 'month' then to_char(invoice_date, 'YYYY-MM')
+        when 'salesman' then coalesce(salesman_name, '—')
+        when 'customer' then coalesce(customer_name, '—')
+        when 'segment' then segment
+        else invoice_date::text
+      end as l,
+      kind, amount_untaxed, amount_tax, amount_total
+    from public.sales_invoices
+    where state = 'posted' and section = p_section
+      and invoice_date between p_from and p_to
+      and (p_segment is null or segment = p_segment)
+  )
+  select
+    b, max(l),
+    count(*) filter (where kind = 'invoice'),
+    coalesce(sum(amount_untaxed) filter (where kind = 'invoice'), 0),
+    coalesce(sum(amount_tax) filter (where kind = 'invoice'), 0),
+    coalesce(sum(amount_total) filter (where kind = 'invoice'), 0),
+    count(*) filter (where kind = 'credit_note'),
+    coalesce(sum(amount_untaxed) filter (where kind = 'credit_note'), 0),
+    coalesce(sum(amount_tax) filter (where kind = 'credit_note'), 0),
+    coalesce(sum(amount_total) filter (where kind = 'credit_note'), 0),
+    coalesce(sum(case when kind = 'invoice' then amount_untaxed else -amount_untaxed end), 0),
+    coalesce(sum(case when kind = 'invoice' then amount_tax else -amount_tax end), 0),
+    coalesce(sum(case when kind = 'invoice' then amount_total else -amount_total end), 0)
+  from base group by b order by b;
+$$;
+grant execute on function public.revenue_summary(date, date, text, text, text) to authenticated, service_role;
+
+-- Quarterly VAT figures (management view, NOT an official return). Purchases count only with a valid 15-digit VAT number.
+create or replace function public.vat_return(p_year integer, p_quarter integer)
+returns jsonb language plpgsql stable set search_path = public as $$
+declare
+  d_from date; d_to date;
+  bakery_sales jsonb; grocery_sales jsonb; purchases jsonb; paid numeric;
+begin
+  if p_quarter not between 1 and 4 then raise exception 'quarter must be 1..4'; end if;
+  d_from := make_date(p_year, (p_quarter - 1) * 3 + 1, 1);
+  d_to := (d_from + interval '3 months' - interval '1 day')::date;
+  select jsonb_build_object(
+    'net', coalesce(sum(amount_untaxed) filter (where kind = 'invoice'), 0),
+    'vat', coalesce(sum(amount_tax) filter (where kind = 'invoice'), 0),
+    'credit_net', coalesce(sum(amount_untaxed) filter (where kind = 'credit_note'), 0),
+    'credit_vat', coalesce(sum(amount_tax) filter (where kind = 'credit_note'), 0),
+    'invoices', count(*) filter (where kind = 'invoice'),
+    'credit_notes', count(*) filter (where kind = 'credit_note'))
+  into bakery_sales
+  from public.sales_invoices where state = 'posted' and section = 'bakery' and invoice_date between d_from and d_to;
+
+  select jsonb_build_object(
+    'net', coalesce(sum(net_sales), 0), 'vat', coalesce(sum(vat_amount), 0),
+    'credit_net', coalesce(sum(credit_net), 0), 'credit_vat', coalesce(sum(credit_vat), 0),
+    'invoices', coalesce(sum(invoice_count), 0), 'days_entered', count(*))
+  into grocery_sales
+  from public.grocery_sales_daily where sale_date between d_from and d_to;
+
+  select jsonb_build_object(
+    'bakery', (select jsonb_build_object(
+        'counted_net', coalesce(sum(total_amount - vat_amount) filter (where vat_valid), 0),
+        'counted_vat', coalesce(sum(vat_amount) filter (where vat_valid), 0),
+        'counted_invoices', count(*) filter (where vat_valid),
+        'excluded_total', coalesce(sum(total_amount) filter (where not vat_valid), 0),
+        'excluded_vat', coalesce(sum(vat_amount) filter (where not vat_valid), 0),
+        'excluded_invoices', count(*) filter (where not vat_valid))
+      from public.bakery_expenses where (invoice_date at time zone 'Asia/Riyadh')::date between d_from and d_to),
+    'grocery', (select jsonb_build_object(
+        'counted_net', coalesce(sum(total_amount - vat_amount) filter (where vat_valid), 0),
+        'counted_vat', coalesce(sum(vat_amount) filter (where vat_valid), 0),
+        'counted_invoices', count(*) filter (where vat_valid),
+        'excluded_total', coalesce(sum(total_amount) filter (where not vat_valid), 0),
+        'excluded_vat', coalesce(sum(vat_amount) filter (where not vat_valid), 0),
+        'excluded_invoices', count(*) filter (where not vat_valid))
+      from public.grocery_expenses where (invoice_date at time zone 'Asia/Riyadh')::date between d_from and d_to))
+  into purchases;
+
+  select coalesce(sum(amount_paid), 0) into paid from public.vat_payments where period_year = p_year and period_quarter = p_quarter;
+
+  return jsonb_build_object(
+    'year', p_year, 'quarter', p_quarter, 'from', d_from, 'to', d_to,
+    'bakery_sales', bakery_sales, 'grocery_sales', grocery_sales, 'purchases', purchases, 'paid', paid);
+end $$;
+grant execute on function public.vat_return(integer, integer) to authenticated, service_role;
+
+-- Per-salesman statistics for the alert engine (service role only)
+create or replace function public.salesman_stats(p_days integer default 30)
+returns table (salesman_id integer, salesman_name text, invoices bigint, avg_amount numeric, max_amount numeric, active_days bigint, zero_tax_invoices bigint)
+language sql stable set search_path = public as $$
+  select salesman_id, max(salesman_name), count(*), coalesce(avg(amount_total), 0), coalesce(max(amount_total), 0),
+         count(distinct invoice_date), count(*) filter (where amount_tax = 0 and amount_total > 0)
+  from public.sales_invoices
+  where kind = 'invoice' and state = 'posted' and invoice_date >= current_date - p_days
+  group by salesman_id;
+$$;
+revoke all on function public.salesman_stats(integer) from public, anon, authenticated;
+grant execute on function public.salesman_stats(integer) to service_role;
+
+-- Missing invoice numbers (gaps) in the recent past; number format "PREFIX/YYYY/NNNNN"
+create or replace function public.invoice_number_gaps(p_since date default current_date - 3)
+returns table (gap_from bigint, gap_to bigint, prefix text)
+language sql stable set search_path = public as $$
+  with n as (
+    select regexp_replace(number, '/[0-9]+$', '') as prefix,
+           (regexp_match(number, '/([0-9]+)$'))[1]::bigint as seq
+    from public.sales_invoices
+    where kind = 'invoice' and number ~ '/[0-9]+$' and odoo_created_at >= p_since and odoo_created_at < now() - interval '30 minutes'
+  ), s as (
+    select prefix, seq, lag(seq) over (partition by prefix order by seq) as prev from n
+  )
+  select prev + 1, seq - 1, prefix from s where prev is not null and seq - prev > 1;
+$$;
+revoke all on function public.invoice_number_gaps(date) from public, anon, authenticated;
+grant execute on function public.invoice_number_gaps(date) to service_role;
+
+create or replace function public.db_size_bytes() returns bigint
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.is_admin() and current_user <> 'service_role' then raise exception 'not allowed'; end if;
+  return pg_database_size(current_database());
+end $$;
+revoke all on function public.db_size_bytes() from public, anon;
+grant execute on function public.db_size_bytes() to authenticated, service_role;
+
+-- ---------------------------------------------------------------- realtime for alerts
+do $$
+begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    begin
+      alter publication supabase_realtime add table public.alerts;
+    exception when duplicate_object then null; end;
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------- default settings (all editable in the dashboard)
+insert into public.app_settings (key, value) values
+  ('sync_settings', '{"enabled": true, "interval_minutes": 5, "history_months": 12, "batch_size": 400, "pause_ms": 400, "max_run_seconds": 25}'),
+  ('zatca_thresholds', '{"b2b_minutes": 5, "b2c_hours": 24, "b2c_warn_hours": 12}'),
+  ('alert_channels', '{"dashboard": true, "whatsapp": false, "email": false, "email_to": []}'),
+  ('working_hours', '{"start_hour": 5, "end_hour": 23}'),
+  ('alert_rules', '{
+    "credit_any": {"enabled": true, "severity": "warning"},
+    "credit_amount": {"enabled": true, "severity": "critical", "min_amount": 500},
+    "credit_per_salesman_day": {"enabled": true, "severity": "warning", "max_per_day": 3},
+    "credit_old_invoice": {"enabled": true, "severity": "warning", "max_age_days": 3},
+    "credit_by_office": {"enabled": true, "severity": "info", "office_users": ["EMAN BAKERY"]},
+    "credit_no_reason": {"enabled": true, "severity": "warning"},
+    "credit_period_end": {"enabled": true, "severity": "warning", "days_before_quarter_end": 5},
+    "refund_unlinked": {"enabled": true, "severity": "warning"},
+    "tiny_invoice": {"enabled": true, "severity": "info", "max_amount": 2},
+    "zero_tax_invoice": {"enabled": true, "severity": "warning"},
+    "zero_tax_ratio": {"enabled": true, "severity": "warning", "min_ratio_pct": 20, "min_invoices": 10, "window_days": 7},
+    "invoice_cancelled": {"enabled": true, "severity": "critical"},
+    "invoice_backdated": {"enabled": true, "severity": "warning", "max_days": 1},
+    "number_gap": {"enabled": true, "severity": "critical"},
+    "duplicate_burst": {"enabled": true, "severity": "warning", "window_minutes": 10, "min_count": 3},
+    "unusual_amount": {"enabled": true, "severity": "warning", "multiplier": 8, "min_amount": 1000},
+    "off_hours": {"enabled": true, "severity": "info"},
+    "sales_drop": {"enabled": true, "severity": "warning", "drop_pct": 60, "check_after_hour": 15, "min_usual_amount": 500},
+    "no_sales_by_time": {"enabled": false, "severity": "info", "by_hour": 11},
+    "unpaid_invoice": {"enabled": true, "severity": "info", "after_hours": 24},
+    "zatca_delay_b2b": {"enabled": true, "severity": "critical"},
+    "zatca_delay_b2c": {"enabled": true, "severity": "warning"},
+    "zatca_error": {"enabled": true, "severity": "critical"},
+    "zatca_chain_gap": {"enabled": true, "severity": "critical"}
+  }')
+on conflict (key) do nothing;
+
+insert into public.feature_flags (key, enabled, description) values
+  ('odoo_sync', true, 'Pull sales invoices and credit notes from Odoo (read-only)'),
+  ('revenue_alerts', true, 'Create alerts for credit notes, ZATCA problems and unusual sales')
+on conflict (key) do nothing;

@@ -92,8 +92,12 @@ describe("RLS", () => {
 describe("constraints & triggers", () => {
   const ins = (vat: string, total: number, v: number, date = "2026-01-01T00:00:00Z") =>
     `insert into public.grocery_expenses (vat_number,invoice_date,total_amount,vat_amount,source) values ('${vat}','${date}',${total},${v},'admin_manual')`;
-  it("rejects bad VAT number, negative amounts, vat>total", async () => {
-    await assert.rejects(as("service_role", null, ins("123", 10, 1)), /vat_number_chk/);
+  it("accepts (and flags) a non-15-digit VAT number, rejects negative amounts and vat>total", async () => {
+    // since migration 20261016 such purchases are stored for reporting but never counted as input VAT
+    await as("service_role", null, ins("123", 10, 1, "2026-01-03T00:00:00Z"));
+    const flagged = await as<{ warnings: string[]; vat_valid: boolean }>("service_role", null, "select warnings, vat_valid from public.grocery_expenses where vat_number='123'");
+    assert.equal(flagged[0].vat_valid, false);
+    assert.ok(flagged[0].warnings.includes("vat_number_invalid"));
     await assert.rejects(as("service_role", null, ins("312028501300003", -1, 0)), /amounts_chk/);
     await assert.rejects(as("service_role", null, ins("312028501300003", 10, 11, "2026-01-02T00:00:00Z")), /check/);
   });
@@ -128,9 +132,9 @@ describe("constraints & triggers", () => {
       "service_role", null, "select before from public.audit_log where table_name='app_users' and action='UPDATE'");
     assert.ok(!("token_hash" in u[0].before));
   });
-  it("realtime publication includes both expense tables; bucket is private", async () => {
+  it("realtime publication includes both expense tables (and alerts); bucket is private", async () => {
     const t = await as<{ tablename: string }>("service_role", null, "select tablename from pg_publication_tables where pubname='supabase_realtime'");
-    assert.deepEqual(t.map((x) => x.tablename).sort(), ["bakery_expenses", "grocery_expenses"]);
+    assert.deepEqual(t.map((x) => x.tablename).sort(), ["alerts", "bakery_expenses", "grocery_expenses"]);
     const b = await as<{ public: boolean }>("service_role", null, "select public from storage.buckets where id='invoice-images'");
     assert.equal(b[0].public, false);
   });

@@ -109,3 +109,18 @@ If Meta has not yet published your Flow (e.g. error 139000 "Blocked by Integrity
 `Hi` / `مصروف` -> [Bakery] [Grocery] -> "send the QR photo or QR text" -> "Saved ✅" or "Duplicate ⚠️".
 People registered with one section skip the buttons. The chosen section is remembered for 15 minutes or until one invoice is saved.
 Switch to the form later by adding the Setting `wa_capture_mode` = `"flow"` (and `wa_flow_id`); with `"buttons"` or no setting the buttons are used.
+
+## Automatic database migrations (GitHub Actions)
+
+`.github/workflows/migrate.yml` applies everything in `supabase/migrations/` to your Supabase project, so future database changes need no copy-and-paste.
+
+One-time setup (GitHub repo, Settings, Secrets and variables, Actions):
+
+| Kind | Name | Where to get it |
+|---|---|---|
+| Secret | `SUPABASE_ACCESS_TOKEN` | supabase.com, Account, Access Tokens, Generate new token |
+| Secret | `SUPABASE_DB_PASSWORD` | the database password you chose when creating the project (Project Settings, Database, Reset password if forgotten) |
+| Variable | `SUPABASE_PROJECT_REF` | `rokfppzdgqnwcxwixsqt` (the part before `.supabase.co`) |
+
+Use: Actions tab, "Database migrations", **Run workflow**. It lists what is pending (dry run). Run it again with "Dry run" unticked to apply. After the first success, any push to `main` that changes `supabase/migrations/` applies automatically.
+All migration files are re-runnable, so applying the whole folder to a database that already has some of them is safe.
