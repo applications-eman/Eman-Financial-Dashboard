@@ -10,9 +10,9 @@ Run on 2026-10-15 from the build environment. **Read the "Not verified" section:
 | ZATCA TLV parser (Arabic seller, Phase 2 tags 6-9, DER lengths, URL-safe Base64, Arabic digits, malformed input) | `npm run test:backend` | 7 tests |
 | Shortcut endpoint (saved / duplicate / invalid / bad token / inactive user / wrong section / brute-force throttle / only hashes stored) | `npm run test:backend` | 4 tests |
 | WhatsApp webhook (verify token, forged & missing signatures, idempotent `wa_message_id`, Base64 + labelled + plain-line text, unregistered & inactive numbers, feature flag) | `npm run test:backend` | 6 tests |
-| Flow encryption round trip (RSA-OAEP-SHA256 + AES-128-GCM flipped IV, passphrase key, tamper/wrong-key), flow tokens, media decryption, QR image decoding (PNG, low-contrast large JPEG), full Flow journey, tampering | `npm run test:backend` | 15 tests |
+| Flow encryption round trip (RSA-OAEP-SHA256 + AES-128-GCM flipped IV, passphrase key, tamper/wrong-key), flow tokens, media decryption, QR image decoding (PNG, low-contrast large JPEG), full Flow journey, tampering | `npm run test:backend` | 14 tests |
 | Admin API auth (no/forged/expired/wrong-audience JWT → 401, staff → 403, CORS allow-list, token shown once, audit actor, validation, CSV) | `npm run test:backend` | 6 tests |
-| Logging redaction, rate limit, WhatsApp retry/backoff, PostgREST mapping, scheduled-report timing | `npm run test:backend` | 5 tests |
+| Logging redaction, rate limit, WhatsApp retry/backoff, PostgREST mapping, scheduled-report timing | `npm run test:backend` | 6 tests |
 | Dashboard aggregation / Riyadh time maths | `npm run test:frontend` | 4 tests |
 | Type checking (dashboard + backend, strict) | `npm run typecheck` | clean |
 | Lint | `npx biome check src` | 0 errors |
