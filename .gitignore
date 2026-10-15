@@ -38,3 +38,6 @@ next-env.d.ts
 
 # valtown backend
 /valtown/node_modules
+
+# the Cloud Run deploy script must be tracked
+!/scripts/deploy-cloud-run.sh
