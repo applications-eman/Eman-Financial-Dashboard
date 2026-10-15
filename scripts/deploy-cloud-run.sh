@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Builds the dashboard image with Cloud Build and deploys it to Cloud Run (min instances 0).
 # Prereqs: gcloud logged in, billing enabled, and the three Secret Manager secrets created (see docs/deployment.md).
-#   PROJECT_ID=my-project REGION=me-central2 ./scripts/deploy-cloud-run.sh
+#   PROJECT_ID=my-project REGION=europe-west1 ./scripts/deploy-cloud-run.sh
 set -euo pipefail
 
 : "${PROJECT_ID:?set PROJECT_ID}"
-REGION="${REGION:-me-central2}"           # Dammam; use europe-west1 etc. if me-central2 is unavailable to you
+REGION="${REGION:-europe-west1}"           # Belgium (me-central2 Dammam is not open to new projects by default)
 SERVICE="${SERVICE:-eman-expenses}"
 REPO="${REPO:-eman}"
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${SERVICE}:$(git rev-parse --short HEAD)"

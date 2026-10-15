@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  REGION: ${{ vars.GCP_REGION || 'me-central2' }}
+  REGION: ${{ vars.GCP_REGION || 'europe-west1' }}
   SERVICE: eman-expenses
   REPO: eman
 

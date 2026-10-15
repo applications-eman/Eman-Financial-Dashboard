@@ -60,7 +60,7 @@ Workload Identity Federation (no GCP key in GitHub). Configure:
 | secret | `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/…/locations/global/workloadIdentityPools/…/providers/…` |
 | secret | `GCP_DEPLOY_SERVICE_ACCOUNT` | deployer SA email (roles: Cloud Run Admin, Cloud Build Editor, Artifact Registry Writer, Service Account User) |
 | secret | `VAL_TOWN_API_KEY` | Val Town API token with vals read+write |
-| variable | `GCP_PROJECT_ID`, `GCP_REGION` (default `me-central2`), `VAL_TOWN_VAL` | |
+| variable | `GCP_PROJECT_ID`, `GCP_REGION` (default `europe-west1`), `VAL_TOWN_VAL` | |
 
 ### Custom domain
 
