@@ -44,8 +44,10 @@ export async function processInboundMessage(store: Store, msg: Record<string, an
   const norm = text.trim().toLowerCase();
   const flowId = await getSetting<string>(store, "wa_flow_id", "");
   if (flowId && (await flagEnabled(store, "whatsapp_flow")) && triggers.some((t) => norm === t.toLowerCase())) {
+    // Setting wa_flow_mode = "draft" lets you test an unpublished Flow (Meta only delivers drafts to the business's own testers)
+    const mode = (await getSetting<string>(store, "wa_flow_mode", "published")) === "draft" ? "draft" : "published";
     const ok = await sendFlowMessage(from, {
-      flowId, flowToken: makeFlowToken(from, appSecret),
+      mode, flowId, flowToken: makeFlowToken(from, appSecret),
       body: await template(store, "welcome", lang, { name: user.name }), cta: lang === "ar" ? "تسجيل فاتورة" : "Record invoice",
     }, deps);
     return ok ? "flow_sent" : "flow_send_failed";

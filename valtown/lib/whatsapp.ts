@@ -65,13 +65,13 @@ export async function sendNotification(store: Store, to: string, text: string, d
   return sendText(to, text, deps);
 }
 
-export async function sendFlowMessage(to: string, o: { flowId: string; flowToken: string; body: string; cta: string; screen?: string }, deps: WaDeps = defaultDeps): Promise<boolean> {
+export async function sendFlowMessage(to: string, o: { flowId: string; flowToken: string; body: string; cta: string; screen?: string; mode?: "draft" | "published" }, deps: WaDeps = defaultDeps): Promise<boolean> {
   try {
     return await post({
       to: digits(to), type: "interactive",
       interactive: {
         type: "flow", body: { text: o.body },
-        action: { name: "flow", parameters: { flow_message_version: "3", flow_token: o.flowToken, flow_id: o.flowId, flow_cta: o.cta.slice(0, 30), flow_action: "data_exchange" } },
+        action: { name: "flow", parameters: { flow_message_version: "3", flow_token: o.flowToken, flow_id: o.flowId, flow_cta: o.cta.slice(0, 30), flow_action: "data_exchange", ...(o.mode === "draft" ? { mode: "draft" } : {}) } },
       },
     }, deps);
   } catch (e) {

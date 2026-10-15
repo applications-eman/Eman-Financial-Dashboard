@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { redact, sink, logger } from "../lib/log.ts";
 import { rateLimit } from "../lib/ratelimit.ts";
-import { waFetch } from "../lib/whatsapp.ts";
+import { sendFlowMessage, waFetch } from "../lib/whatsapp.ts";
 import { riyadhParts, runScheduledReports } from "../lib/reports.ts";
 import { SupabaseStore, MemoryStore } from "../lib/store.ts";
 import { saveExpense } from "../lib/expenses.ts";
@@ -36,6 +36,19 @@ describe("WhatsApp retry with backoff", () => {
     const r2 = await waFetch("https://x", {}, { f: (async () => { m++; return new Response("", { status: 400 }); }) as typeof fetch, sleep: async () => {} });
     assert.equal(r2.status, 400); assert.equal(m, 1);
     await assert.rejects(waFetch("https://x", {}, { f: (async () => { throw new Error("net"); }) as typeof fetch, sleep: async () => {} }, 2));
+  });
+});
+describe("Flow message mode", () => {
+  it("adds mode=draft only when asked", async () => {
+    process.env.WA_TOKEN = "t"; process.env.WA_PHONE_NUMBER_ID = "1";
+    const bodies: any[] = [];
+    const f = (async (_u: string, init: RequestInit) => { bodies.push(JSON.parse(String(init.body))); return new Response("{}", { status: 200 }); }) as unknown as typeof fetch;
+    const deps = { f, sleep: async () => {} };
+    await sendFlowMessage("+966500000002", { flowId: "9", flowToken: "x", body: "b", cta: "c" }, deps);
+    await sendFlowMessage("+966500000002", { flowId: "9", flowToken: "x", body: "b", cta: "c", mode: "draft" }, deps);
+    delete process.env.WA_TOKEN; delete process.env.WA_PHONE_NUMBER_ID;
+    assert.equal(bodies[0].interactive.action.parameters.mode, undefined);
+    assert.equal(bodies[1].interactive.action.parameters.mode, "draft");
   });
 });
 describe("VAT warning rule (mirrors DB trigger)", () => {
