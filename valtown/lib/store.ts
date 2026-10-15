@@ -43,9 +43,13 @@ export class SupabaseStore implements Store {
   }
 
   private headers(actor?: string, extra: Record<string, string> = {}) {
-    const h: Record<string, string> = { apikey: this.key, Authorization: `Bearer ${this.key}`, "Content-Type": "application/json", ...extra };
+    const h: Record<string, string> = { apikey: this.key, ...this.bearer(), "Content-Type": "application/json", ...extra };
     if (actor) h["x-actor"] = actor.slice(0, 200); // read by the audit trigger via request.headers
     return h;
+  }
+  /** Legacy service_role keys are JWTs (send as Bearer too). New "sb_secret_…" keys are not JWTs: apikey header only. */
+  private bearer(): Record<string, string> {
+    return this.key.startsWith("sb_") ? {} : { Authorization: `Bearer ${this.key}` };
   }
   private qs(q: Query = {}) {
     const p: string[] = [];
@@ -89,7 +93,7 @@ export class SupabaseStore implements Store {
   }
   async uploadObject(path: string, bytes: Uint8Array, contentType: string) {
     const r = await this.f(`${this.url}/storage/v1/object/invoice-images/${path}`, {
-      method: "POST", headers: { apikey: this.key, Authorization: `Bearer ${this.key}`, "Content-Type": contentType, "x-upsert": "true" }, body: new Blob([bytes as BlobPart]),
+      method: "POST", headers: { apikey: this.key, ...this.bearer(), "Content-Type": contentType, "x-upsert": "true" }, body: new Blob([bytes as BlobPart]),
     });
     if (!r.ok) throw new Error(`storage upload failed: ${r.status}`);
   }

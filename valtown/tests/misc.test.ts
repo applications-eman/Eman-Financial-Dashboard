@@ -58,6 +58,17 @@ describe("SupabaseStore (REST mapping)", () => {
     assert.match(calls[1].url, /\/rest\/v1\/categories\?section=eq\.bakery&id=in\.\("a","b"\)&order=name\.asc&limit=5/);
   });
 });
+describe("SupabaseStore key formats", () => {
+  it("sends Authorization for legacy JWT keys but only apikey for sb_secret keys", async () => {
+    const seen: Record<string, string>[] = [];
+    const f = (async (_u: string, init: RequestInit) => { seen.push(init.headers as Record<string, string>); return new Response("[]", { status: 200 }); }) as unknown as typeof fetch;
+    await new SupabaseStore("https://p.supabase.co", "eyJhbGciOi.legacy.jwt", f).select("categories");
+    await new SupabaseStore("https://p.supabase.co", "sb_secret_abc", f).select("categories");
+    assert.equal(seen[0].Authorization, "Bearer eyJhbGciOi.legacy.jwt");
+    assert.equal(seen[1].Authorization, undefined);
+    assert.equal(seen[1].apikey, "sb_secret_abc");
+  });
+});
 describe("scheduled reports", () => {
   it("fires once at the configured Riyadh hour, from settings (not code)", async () => {
     const store = setup();
