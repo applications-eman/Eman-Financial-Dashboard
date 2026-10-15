@@ -2,10 +2,24 @@
   "version": "7.3",
   "data_api_version": "3.0",
   "routing_model": {
-    "SECTION": ["PHOTO"],
-    "PHOTO": ["CONFIRM", "RETRY", "FAILURE"],
-    "RETRY": ["CONFIRM", "RETRY", "FAILURE"],
-    "CONFIRM": ["SUCCESS", "DUPLICATE", "FAILURE"],
+    "SECTION": [
+      "PHOTO"
+    ],
+    "PHOTO": [
+      "CONFIRM",
+      "RETRY",
+      "FAILURE"
+    ],
+    "RETRY": [
+      "CONFIRM",
+      "RETRY",
+      "FAILURE"
+    ],
+    "CONFIRM": [
+      "SUCCESS",
+      "DUPLICATE",
+      "FAILURE"
+    ],
     "SUCCESS": [],
     "DUPLICATE": [],
     "FAILURE": []
@@ -15,26 +29,66 @@
       "id": "SECTION",
       "title": "الفاتورة / Invoice",
       "data": {
-        "greeting": { "type": "string", "__example__": "مرحباً / Hello" },
+        "greeting": {
+          "type": "string",
+          "__example__": "مرحباً / Hello"
+        },
         "sections": {
           "type": "array",
-          "items": { "type": "object", "properties": { "id": { "type": "string" }, "title": { "type": "string" } } },
-          "__example__": [{ "id": "bakery", "title": "المخبز / Bakery" }, { "id": "grocery", "title": "البقالة / Grocery" }]
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            }
+          },
+          "__example__": [
+            {
+              "id": "bakery",
+              "title": "المخبز / Bakery"
+            },
+            {
+              "id": "grocery",
+              "title": "البقالة / Grocery"
+            }
+          ]
         }
       },
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
-          { "type": "TextHeading", "text": "${data.greeting}" },
+          {
+            "type": "TextHeading",
+            "text": "${data.greeting}"
+          },
           {
             "type": "Form",
             "name": "section_form",
             "children": [
-              { "type": "RadioButtonsGroup", "name": "section", "label": "القسم / Section", "required": true, "data-source": "${data.sections}" },
+              {
+                "type": "RadioButtonsGroup",
+                "name": "section",
+                "label": "القسم / Section",
+                "required": true,
+                "data-source": "${data.sections}"
+              },
               {
                 "type": "Footer",
                 "label": "التالي / Next",
-                "on-click-action": { "name": "navigate", "next": { "type": "screen", "name": "PHOTO" }, "payload": { "section": "${form.section}" } }
+                "on-click-action": {
+                  "name": "navigate",
+                  "next": {
+                    "type": "screen",
+                    "name": "PHOTO"
+                  },
+                  "payload": {
+                    "section": "${form.section}"
+                  }
+                }
               }
             ]
           }
@@ -44,11 +98,19 @@
     {
       "id": "PHOTO",
       "title": "تصوير الفاتورة / Scan",
-      "data": { "section": { "type": "string", "__example__": "bakery" } },
+      "data": {
+        "section": {
+          "type": "string",
+          "__example__": "bakery"
+        }
+      },
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
-          { "type": "TextBody", "text": "صوّر رمز QR الموجود على الفاتورة بوضوح. / Take a clear photo of the QR code on the invoice." },
+          {
+            "type": "TextBody",
+            "text": "صوّر رمز QR الموجود على الفاتورة بوضوح. / Take a clear photo of the QR code on the invoice."
+          },
           {
             "type": "Form",
             "name": "photo_form",
@@ -66,7 +128,14 @@
               {
                 "type": "Footer",
                 "label": "قراءة / Read",
-                "on-click-action": { "name": "data_exchange", "payload": { "action": "scan", "section": "${data.section}", "photo": "${form.photo}" } }
+                "on-click-action": {
+                  "name": "data_exchange",
+                  "payload": {
+                    "action": "scan",
+                    "section": "${data.section}",
+                    "photo": "${form.photo}"
+                  }
+                }
               }
             ]
           }
@@ -77,14 +146,26 @@
       "id": "RETRY",
       "title": "إعادة المحاولة / Try again",
       "data": {
-        "section": { "type": "string", "__example__": "bakery" },
-        "image_path": { "type": "string", "__example__": "" },
-        "message": { "type": "string", "__example__": "تعذرت قراءة رمز QR" }
+        "section": {
+          "type": "string",
+          "__example__": "bakery"
+        },
+        "image_path": {
+          "type": "string",
+          "__example__": ""
+        },
+        "message": {
+          "type": "string",
+          "__example__": "تعذرت قراءة رمز QR"
+        }
       },
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
-          { "type": "TextBody", "text": "${data.message}" },
+          {
+            "type": "TextBody",
+            "text": "${data.message}"
+          },
           {
             "type": "Form",
             "name": "retry_form",
@@ -97,13 +178,24 @@
                 "min-uploaded-photos": 0,
                 "max-uploaded-photos": 1
               },
-              { "type": "TextArea", "name": "qr_text", "label": "أو الصق نص QR / Or paste QR text", "required": false, "max-length": 2000 },
+              {
+                "type": "TextArea",
+                "name": "qr_text",
+                "label": "أو الصق نص QR / Or paste QR text",
+                "required": false,
+                "max-length": 2000
+              },
               {
                 "type": "Footer",
                 "label": "قراءة / Read",
                 "on-click-action": {
                   "name": "data_exchange",
-                  "payload": { "action": "retry", "section": "${data.section}", "photo": "${form.photo}", "qr_text": "${form.qr_text}" }
+                  "payload": {
+                    "action": "retry",
+                    "section": "${data.section}",
+                    "photo": "${form.photo}",
+                    "qr_text": "${form.qr_text}"
+                  }
                 }
               }
             ]
@@ -115,29 +207,83 @@
       "id": "CONFIRM",
       "title": "تأكيد / Confirm",
       "data": {
-        "section": { "type": "string", "__example__": "bakery" },
-        "raw_qr": { "type": "string", "__example__": "AQ..." },
-        "image_path": { "type": "string", "__example__": "" },
-        "summary": { "type": "string", "__example__": "Seller\nVAT: 312028501300003" },
-        "total": { "type": "string", "__example__": "145.52" },
-        "notes": { "type": "string", "__example__": "" },
+        "section": {
+          "type": "string",
+          "__example__": "bakery"
+        },
+        "raw_qr": {
+          "type": "string",
+          "__example__": "AQ..."
+        },
+        "image_path": {
+          "type": "string",
+          "__example__": ""
+        },
+        "summary": {
+          "type": "string",
+          "__example__": "Seller\nVAT: 312028501300003"
+        },
+        "total": {
+          "type": "string",
+          "__example__": "145.52"
+        },
+        "notes": {
+          "type": "string",
+          "__example__": ""
+        },
         "categories": {
           "type": "array",
-          "items": { "type": "object", "properties": { "id": { "type": "string" }, "title": { "type": "string" } } },
-          "__example__": [{ "id": "Packaging", "title": "تغليف / Packaging" }]
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            }
+          },
+          "__example__": [
+            {
+              "id": "Packaging",
+              "title": "تغليف / Packaging"
+            }
+          ]
         }
       },
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
-          { "type": "TextBody", "text": "${data.summary}" },
+          {
+            "type": "TextBody",
+            "text": "${data.summary}"
+          },
           {
             "type": "Form",
             "name": "confirm_form",
             "children": [
-              { "type": "TextInput", "name": "total", "label": "الإجمالي (ر.س) / Total (SAR)", "input-type": "number", "required": true, "init-value": "${data.total}" },
-              { "type": "Dropdown", "name": "category", "label": "التصنيف / Category", "required": false, "data-source": "${data.categories}" },
-              { "type": "TextInput", "name": "notes", "label": "ملاحظات / Notes", "input-type": "text", "required": false, "init-value": "${data.notes}", "max-length": 300 },
+              {
+                "type": "TextInput",
+                "name": "total",
+                "label": "الإجمالي (ر.س) / Total (SAR)",
+                "input-type": "number",
+                "required": true
+              },
+              {
+                "type": "Dropdown",
+                "name": "category",
+                "label": "التصنيف / Category",
+                "required": false,
+                "data-source": "${data.categories}"
+              },
+              {
+                "type": "TextInput",
+                "name": "notes",
+                "label": "ملاحظات / Notes",
+                "input-type": "text",
+                "required": false
+              },
               {
                 "type": "Footer",
                 "label": "حفظ / Save",
@@ -154,7 +300,11 @@
                   }
                 }
               }
-            ]
+            ],
+            "init-values": {
+              "total": "${data.total}",
+              "notes": "${data.notes}"
+            }
           }
         ]
       }
@@ -164,13 +314,33 @@
       "title": "تم / Done",
       "terminal": true,
       "success": true,
-      "data": { "message": { "type": "string", "__example__": "تم الحفظ ✅" } },
+      "data": {
+        "message": {
+          "type": "string",
+          "__example__": "تم الحفظ ✅"
+        }
+      },
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
-          { "type": "TextHeading", "text": "✅" },
-          { "type": "TextBody", "text": "${data.message}" },
-          { "type": "Footer", "label": "إغلاق / Close", "on-click-action": { "name": "complete", "payload": { "status": "saved" } } }
+          {
+            "type": "TextHeading",
+            "text": "✅"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.message}"
+          },
+          {
+            "type": "Footer",
+            "label": "إغلاق / Close",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "status": "saved"
+              }
+            }
+          }
         ]
       }
     },
@@ -179,13 +349,33 @@
       "title": "مكررة / Duplicate",
       "terminal": true,
       "success": true,
-      "data": { "message": { "type": "string", "__example__": "مكررة ⚠️" } },
+      "data": {
+        "message": {
+          "type": "string",
+          "__example__": "مكررة ⚠️"
+        }
+      },
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
-          { "type": "TextHeading", "text": "⚠️" },
-          { "type": "TextBody", "text": "${data.message}" },
-          { "type": "Footer", "label": "إغلاق / Close", "on-click-action": { "name": "complete", "payload": { "status": "duplicate" } } }
+          {
+            "type": "TextHeading",
+            "text": "⚠️"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.message}"
+          },
+          {
+            "type": "Footer",
+            "label": "إغلاق / Close",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "status": "duplicate"
+              }
+            }
+          }
         ]
       }
     },
@@ -194,12 +384,29 @@
       "title": "خطأ / Error",
       "terminal": true,
       "success": false,
-      "data": { "message": { "type": "string", "__example__": "حدث خطأ" } },
+      "data": {
+        "message": {
+          "type": "string",
+          "__example__": "حدث خطأ"
+        }
+      },
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
-          { "type": "TextBody", "text": "${data.message}" },
-          { "type": "Footer", "label": "إغلاق / Close", "on-click-action": { "name": "complete", "payload": { "status": "error" } } }
+          {
+            "type": "TextBody",
+            "text": "${data.message}"
+          },
+          {
+            "type": "Footer",
+            "label": "إغلاق / Close",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "status": "error"
+              }
+            }
+          }
         ]
       }
     }
