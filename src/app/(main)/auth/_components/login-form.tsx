@@ -1,104 +1,92 @@
 "use client";
 
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Controller, useForm } from "react-hook-form";
+import { type FormEvent, useState } from "react";
+
+import { useRouter } from "next/navigation";
+
 import { toast } from "sonner";
-import { z } from "zod";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Spinner } from "@/components/ui/spinner";
+import { useT } from "@/lib/i18n/provider";
+import { getSupabase } from "@/lib/supabase/client";
 
-const formSchema = z.object({
-  email: z.email({ message: "Please enter a valid email address." }),
-  password: z.string().min(6, { message: "Password must be at least 6 characters." }),
-  remember: z.boolean().optional(),
-});
+export function LoginForm({ next, callbackError }: { next?: string; callbackError?: boolean }) {
+  const t = useT();
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState<"password" | "magic" | null>(null);
+  const [error, setError] = useState<string | null>(callbackError ? t("auth.callbackError") : null);
+  const safeNext = next?.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
 
-function onSubmit(data: z.infer<typeof formSchema>) {
-  toast("You submitted the following values", {
-    description: (
-      <pre className="mt-2 w-[320px] rounded-md bg-neutral-950 p-4">
-        <code className="text-white">{JSON.stringify(data, null, 2)}</code>
-      </pre>
-    ),
-  });
-}
+  async function onPassword(e: FormEvent) {
+    e.preventDefault();
+    setBusy("password");
+    setError(null);
+    const { error: err } = await getSupabase().auth.signInWithPassword({ email, password });
+    setBusy(null);
+    if (err) return setError(t("auth.invalid"));
+    router.replace(safeNext);
+    router.refresh();
+  }
 
-export function LoginForm() {
-  const form = useForm<z.infer<typeof formSchema>>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      email: "",
-      password: "",
-      remember: false,
-    },
-  });
+  async function onMagicLink() {
+    if (!email) return setError(t("auth.emailRequired"));
+    setBusy("magic");
+    setError(null);
+    const { error: err } = await getSupabase().auth.signInWithOtp({
+      email,
+      options: {
+        shouldCreateUser: false, // only pre-created admins can sign in
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(safeNext)}`,
+      },
+    });
+    setBusy(null);
+    if (err) return setError(t("auth.magicFailed"));
+    toast.success(t("auth.magicSent"));
+  }
 
   return (
-    <form noValidate onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
-      <FieldGroup className="gap-4">
-        <Controller
-          control={form.control}
-          name="email"
-          render={({ field, fieldState }) => (
-            <Field className="gap-1.5" data-invalid={fieldState.invalid}>
-              <FieldLabel htmlFor="login-email">Email Address</FieldLabel>
-              <Input
-                {...field}
-                id="login-email"
-                type="email"
-                placeholder="you@example.com"
-                autoComplete="email"
-                aria-invalid={fieldState.invalid}
-              />
-              {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-            </Field>
-          )}
+    <form onSubmit={onPassword} className="space-y-4" noValidate>
+      <div className="space-y-2">
+        <Label htmlFor="email">{t("auth.email")}</Label>
+        <Input
+          id="email"
+          type="email"
+          autoComplete="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          dir="ltr"
         />
-        <Controller
-          control={form.control}
-          name="password"
-          render={({ field, fieldState }) => (
-            <Field className="gap-1.5" data-invalid={fieldState.invalid}>
-              <FieldLabel htmlFor="login-password">Password</FieldLabel>
-              <Input
-                {...field}
-                id="login-password"
-                type="password"
-                placeholder="••••••••"
-                autoComplete="current-password"
-                aria-invalid={fieldState.invalid}
-              />
-              {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-            </Field>
-          )}
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="password">{t("auth.password")}</Label>
+        <Input
+          id="password"
+          type="password"
+          autoComplete="current-password"
+          required
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          dir="ltr"
         />
-        <Controller
-          control={form.control}
-          name="remember"
-          render={({ field, fieldState }) => (
-            <Field orientation="horizontal" data-invalid={fieldState.invalid}>
-              <Checkbox
-                id="login-remember"
-                name={field.name}
-                checked={field.value}
-                onCheckedChange={(checked) => field.onChange(Boolean(checked))}
-                aria-invalid={fieldState.invalid}
-              />
-              <FieldContent>
-                <FieldLabel htmlFor="login-remember" className="font-normal">
-                  Remember me for 30 days
-                </FieldLabel>
-                {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
-              </FieldContent>
-            </Field>
-          )}
-        />
-      </FieldGroup>
-      <Button className="w-full" type="submit">
-        Login
+      </div>
+      {error ? (
+        <p role="alert" className="text-destructive text-sm">
+          {error}
+        </p>
+      ) : null}
+      <Button type="submit" className="w-full" disabled={busy !== null}>
+        {busy === "password" ? <Spinner data-icon="inline-start" /> : null}
+        {t("auth.signIn")}
+      </Button>
+      <Button type="button" variant="outline" className="w-full" disabled={busy !== null} onClick={onMagicLink}>
+        {busy === "magic" ? <Spinner data-icon="inline-start" /> : null}
+        {t("auth.magicLink")}
       </Button>
     </form>
   );

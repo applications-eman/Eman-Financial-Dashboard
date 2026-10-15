@@ -1,6 +1,6 @@
 {
-  "name": "studio-admin",
-  "version": "2.2.0",
+  "name": "eman-expenses-dashboard",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -11,10 +11,17 @@
     "check": "biome check",
     "check:fix": "biome check --write",
     "prepare": "husky",
-    "generate:presets": "ts-node -P tsconfig.scripts.json src/scripts/generate-theme-presets.ts"
+    "generate:presets": "ts-node -P tsconfig.scripts.json src/scripts/generate-theme-presets.ts",
+    "test:frontend": "node --test src/lib/stats.test.ts",
+    "test:backend": "npm --prefix valtown test",
+    "test": "npm run test:frontend && npm run test:backend",
+    "typecheck": "tsc --noEmit && npm --prefix valtown run typecheck",
+    "e2e": "node e2e/run.mjs"
   },
   "lint-staged": {
-    "*.{js,ts,jsx,tsx}": ["biome check --write --no-errors-on-unmatched"]
+    "*.{js,ts,jsx,tsx}": [
+      "biome check --write --no-errors-on-unmatched"
+    ]
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
@@ -24,6 +31,8 @@
     "@fullcalendar/react": "^7.1.2",
     "@hookform/resolvers": "^5.9.1",
     "@shadcn/react": "^0.3.1",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.117.3",
     "@tanstack/react-table": "^9.3.1",
     "class-variance-authority": "^0.7.1",
     "cmdk": "^1.1.1",
@@ -64,6 +73,7 @@
     "babel-plugin-react-compiler": "^1.0.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.4.0",
+    "playwright-core": "^1.64.1",
     "postcss": "^8.5.30",
     "tailwindcss": "^4.1.5",
     "ts-node": "^10.9.2",

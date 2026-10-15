@@ -6,27 +6,31 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { APP_CONFIG } from "@/config/app-config";
 import { fontVars } from "@/lib/fonts/registry";
+import { dirOf } from "@/lib/i18n/config";
+import { I18nProvider } from "@/lib/i18n/provider";
+import { getLang } from "@/lib/i18n/server";
 import { PREFERENCE_DEFAULTS } from "@/lib/preferences/preferences-config";
+import { readServerPublicEnv } from "@/lib/public-env";
 import { ThemeBootScript } from "@/scripts/theme-boot";
 import { PreferencesStoreProvider } from "@/stores/preferences/preferences-provider";
 
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://studio-admin.arhamkhnz.com"),
   title: APP_CONFIG.meta.title,
   description: APP_CONFIG.meta.description,
-  twitter: {
-    card: "summary_large_image",
-  },
+  robots: { index: false, follow: false },
 };
 
-export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   const { theme_mode, theme_preset, content_layout, navbar_style, sidebar_variant, sidebar_collapsible, font } =
     PREFERENCE_DEFAULTS;
+  const lang = await getLang(); // reads cookies => the layout is rendered per request, so runtime env is always fresh
+  const publicEnv = JSON.stringify(readServerPublicEnv()).replace(/</g, "\\u003c");
   return (
     <html
-      lang="en"
+      lang={lang}
+      dir={dirOf(lang)}
       data-theme-mode={theme_mode}
       data-theme-preset={theme_preset}
       data-content-layout={content_layout}
@@ -37,18 +41,10 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
       suppressHydrationWarning
     >
       <head>
-        {/* Google tag (gtag.js) */}
-        <script async src="https://www.googletagmanager.com/gtag/js?id=G-JSJE619NQN" />
+        {/* Runtime public config (Supabase URL / anon key / admin API URL). Not secrets. */}
         <script
-          // biome-ignore lint/security/noDangerouslySetInnerHtml: static Google tag initialization supplied by the site owner
-          dangerouslySetInnerHTML={{
-            __html: `
-              window.dataLayer = window.dataLayer || [];
-              function gtag(){dataLayer.push(arguments);}
-              gtag('js', new Date());
-              gtag('config', 'G-JSJE619NQN');
-            `,
-          }}
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: JSON.stringify output with "<" escaped
+          dangerouslySetInnerHTML={{ __html: `window.__ENV__=${publicEnv};` }}
         />
         {/* Applies theme and layout preferences on load to avoid flicker and unnecessary server rerenders. */}
         <ThemeBootScript />
@@ -56,8 +52,10 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
       <body className={`${fontVars} min-h-screen antialiased`}>
         <TooltipProvider>
           <PreferencesStoreProvider initialValues={PREFERENCE_DEFAULTS}>
-            {children}
-            <Toaster />
+            <I18nProvider initialLang={lang}>
+              {children}
+              <Toaster />
+            </I18nProvider>
           </PreferencesStoreProvider>
         </TooltipProvider>
       </body>

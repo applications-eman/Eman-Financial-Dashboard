@@ -1,22 +1,27 @@
 import type { ReactNode } from "react";
 
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
 import { cn } from "cn";
 
 import { AppSidebar } from "@/app/(main)/dashboard/_components/sidebar/app-sidebar";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { users } from "@/data/users";
+import { getAdminProfile } from "@/lib/supabase/server";
 import { getPreference } from "@/server/server-actions";
 
-import { AccountSwitcher } from "./_components/header/account-switcher";
-import { GitHubRepositoriesMenu } from "./_components/header/github-repositories-menu";
+import { LangSwitcher } from "./_components/header/lang-switcher";
 import { LayoutControls } from "./_components/header/layout-controls";
-import { SearchDialog } from "./_components/header/search-dialog";
 import { ThemeSwitcher } from "./_components/header/theme-switcher";
+import { UserMenu } from "./_components/header/user-menu";
 
 export default async function Layout({ children }: Readonly<{ children: ReactNode }>) {
+  // Second gate (the proxy is the first): only an ACTIVE app_users row with role = 'admin' may enter.
+  const gate = await getAdminProfile();
+  if (!gate.ok) redirect(gate.reason === "anonymous" ? "/auth/login" : "/unauthorized");
+  const { profile } = gate;
+
   const cookieStore = await cookies();
   const defaultOpen = cookieStore.get("sidebar_state")?.value !== "false";
   const [variant, collapsible] = await Promise.all([
@@ -58,13 +63,12 @@ export default async function Layout({ children }: Readonly<{ children: ReactNod
                 orientation="vertical"
                 className="mx-2 data-[orientation=vertical]:h-4 data-[orientation=vertical]:self-center"
               />
-              <SearchDialog />
             </div>
             <div className="flex items-center gap-2">
               <LayoutControls />
+              <LangSwitcher />
               <ThemeSwitcher />
-              <GitHubRepositoriesMenu />
-              <AccountSwitcher users={users} />
+              <UserMenu name={profile.name} email={profile.email} />
             </div>
           </div>
         </header>
