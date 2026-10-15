@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
@@ -25,6 +25,8 @@ export function SyncStatusBar({ onSynced }: { onSynced?: () => void }) {
   const t = useT();
   const [s, setS] = useState<SyncStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loaded, setLoaded] = useState(0);
+  const stop = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -40,9 +42,20 @@ export function SyncStatusBar({ onSynced }: { onSynced?: () => void }) {
   }, [load]);
 
   async function syncNow() {
+    if (busy) {
+      stop.current = true;
+      return;
+    }
+    stop.current = false;
     setBusy(true);
+    setLoaded(0);
     try {
-      await adminSend("POST", "/admin/sync/run");
+      // keeps going until Odoo is fully imported (each call handles one time-boxed batch)
+      for (let i = 0; i < 400 && !stop.current; i++) {
+        const r = await adminSend<{ fetched: number; caughtUp: boolean; skipped?: string }>("POST", "/admin/sync/run");
+        setLoaded((n) => n + r.fetched);
+        if (r.caughtUp || r.skipped) break;
+      }
       toast.success(t("sync.done"));
       await load();
       onSynced?.();
@@ -75,9 +88,9 @@ export function SyncStatusBar({ onSynced }: { onSynced?: () => void }) {
           })}
         </span>
       ) : null}
-      <Button size="sm" variant="outline" onClick={syncNow} disabled={busy || !s?.configured}>
+      <Button size="sm" variant="outline" onClick={syncNow} disabled={!s?.configured}>
         {busy ? <Spinner data-icon="inline-start" /> : <RefreshCw data-icon="inline-start" />}
-        {t("sync.now")}
+        {busy ? t("sync.running", { n: loaded }) : t("sync.now")}
       </Button>
     </div>
   );

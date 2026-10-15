@@ -91,14 +91,14 @@ test("history import (old documents) never raises event alerts", async () => {
 test("catch-up mode: small batches over several loops reach the end; a tight time budget stops early and resumes", async () => {
   const s = mem();
   const moves = Array.from({ length: 25 }, (_, i) => mv(i + 1));
-  await s.upsert("app_settings", { key: "sync_settings", value: { batch_size: 10, pause_ms: 0, max_run_seconds: 25 } }, "key");
+  await s.upsert("app_settings", { key: "sync_settings", value: { batch_size: 10, backfill_batch: 10, pause_ms: 0, max_run_seconds: 25 } }, "key");
   const odoo = fakeOdoo(moves);
   const r1 = await runSyncCycle(s, odoo, base);
   assert.equal(r1.fetched, 25);
   assert.ok(r1.caughtUp);
 
   const s2 = mem();
-  await s2.upsert("app_settings", { key: "sync_settings", value: { batch_size: 10, pause_ms: 0, max_run_seconds: 0 } }, "key");
+  await s2.upsert("app_settings", { key: "sync_settings", value: { batch_size: 10, backfill_batch: 10, pause_ms: 0, max_run_seconds: 0 } }, "key");
   const first = await runSyncCycle(s2, fakeOdoo(moves), base);
   assert.equal(first.fetched, 10);
   assert.equal(first.caughtUp, false);
