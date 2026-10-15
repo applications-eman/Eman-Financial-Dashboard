@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+.github
+.husky
+docs
+e2e
+supabase
+valtown
+whatsapp
+*.md
+.env*
+npm-debug.log
+Dockerfile
+.dockerignore

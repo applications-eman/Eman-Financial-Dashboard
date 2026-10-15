@@ -1,146 +1,109 @@
-# Next.js Admin Template with TypeScript & Shadcn UI
+# Eman Expenses – Expense Capture + Admin Console
 
-**Studio Admin** - Includes multiple dashboards, authentication layouts, customizable theme presets, and more.
+Purchase invoices (ZATCA Phase 1/2 QR codes) are captured by staff from **WhatsApp** (Flow or plain text) or an
+**iOS Shortcut**, stored in **Supabase**, and shown **live** in this admin dashboard. Everything that may change later
+(users, categories, VAT rate, thresholds, report schedule, message texts, feature switches) is data with a UI.
 
-<img src="https://github.com/arhamkhnz/next-shadcn-admin-dashboard/blob/main/media/dashboard.png?version=5" alt="Dashboard Screenshot">
+> **Status:** code, tests and the Val Town backend are done and verified locally. Supabase migrations, Cloud Run and the
+> Meta/WhatsApp setup still need *your* credentials – see [docs/test-report.md](docs/test-report.md) for exactly what
+> was and was not verified, and the [deploy checklist](#deploy-checklist) below.
 
-Most admin templates I found, free or paid, felt cluttered, outdated, or too rigid. I built this as a cleaner alternative with features often missing in others, such as theme toggling and layout controls, while keeping the design modern, minimal, and flexible.
+## Architecture
 
-> **View demo:** [studio admin](https://studio-admin.arhamkhnz.com)
-
-> [!NOTE]
-> Looking for the Base UI version? Check out [next-shadcn-admin-dashboard-baseui](https://github.com/arhamkhnz/next-shadcn-admin-dashboard-baseui).
->
-> Looking for the React Aria version? Check out [arhamkhnz/next-shadcn-admin-dashboard-aria](https://github.com/arhamkhnz/next-shadcn-admin-dashboard-aria).
->
-> Looking for the TanStack Start version? Check out [tanstack-shadcn-admin-dashboard](https://github.com/arhamkhnz/tanstack-shadcn-admin-dashboard).
-
-> [!TIP]
-> I’m also working on Nuxt.js and Svelte versions of this dashboard. They’ll be live soon.
-
-## Features
-
-- Built with Next.js 16, TypeScript, Tailwind CSS v4, and Shadcn UI  
-- Responsive and mobile-friendly  
-- Customizable theme presets (light/dark modes with color schemes like Tangerine, Brutalist, and more)  
-- Flexible layouts (collapsible sidebar, variable content widths)  
-- Authentication flows and screens  
-- Prebuilt dashboards (Default, CRM, Finance, Analytics, Productivity) plus legacy variants  
-- Role-Based Access Control (RBAC) with config-driven UI and multi-tenant support *(planned)*  
-
-> [!NOTE]
-> The default dashboard uses the **shadcn neutral** theme.  
-> It also includes additional color presets inspired by [Tweakcn](https://tweakcn.com):  
->
-> - Tangerine  
-> - Neo Brutalism  
-> - Soft Pop  
->
-> You can create more presets by following the same structure as the existing ones.
-
-> Looking for the **Next.js 15** version?  
-> Check out the [`archive/next15`](https://github.com/arhamkhnz/next-shadcn-admin-dashboard/tree/archive/next15) branch.  
-> This branch contains the setup prior to upgrading to Next 16 and the React Compiler.
-
-> Looking for the **Next.js 14 + Tailwind CSS v3** version?  
-> Check out the [`archive/next14-tailwindv3`](https://github.com/arhamkhnz/next-shadcn-admin-dashboard/tree/archive/next14-tailwindv3) branch.  
-> It has a different color theme and is not actively maintained, but I try to keep it updated with major changes.  
-
-## Tech Stack
-
-- **Framework**: Next.js 16 (App Router), TypeScript, Tailwind CSS v4  
-- **UI Components**: Shadcn UI  
-- **Validation**: Zod  
-- **Forms & State Management**: React Hook Form, Zustand  
-- **Tables & Data Handling**: TanStack Table  
-- **Tooling & DX**: Biome, Husky  
-
-## Screens
-
-### Available
-- Default Dashboard  
-- CRM Dashboard  
-- Finance Dashboard  
-- Analytics Dashboard  
-- Productivity Dashboard  
-- E-commerce Dashboard  
-- Academy Dashboard  
-- Logistics Dashboard  
-- Infrastructure Dashboard  
-- File Manager  
-- Patient Monitoring  
-- Chat Page  
-- Email Page  
-- Profile  
-- Users Management  
-- Roles Management  
-- Kanban Board  
-- Tasks Page  
-- Invoice Page  
-- Calendar Page  
-- Authentication (4 screens)  
-- Legacy: Default v1, CRM v1, Finance v1, Analytics v1
-
-### Planned
-I’ve added all the planned screens. Feel free to open an issue for requesting something specific.
-
-## Colocation File System Architecture
-
-This project follows a **colocation-based architecture** each feature keeps its own pages, components, and logic inside its route folder.  
-Shared UI, hooks, and configuration live at the top level, making the codebase modular, scalable, and easier to maintain as the app grows.
-
-For a full breakdown of the structure with examples, see the [Next Colocation Template](https://github.com/arhamkhnz/next-colocation-template).
-
-## Getting Started
-
-You can run this project locally, or deploy it instantly with Vercel.
-
-### Deploy with Vercel
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Farhamkhnz%2Fnext-shadcn-admin-dashboard)
-
-_Deploy your own copy with one click._
-
-### Run locally
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/arhamkhnz/next-shadcn-admin-dashboard.git
-   ```
-   
-2. **Navigate into the project**
-   ```bash
-    cd next-shadcn-admin-dashboard
-   ```
-   
-3. **Install dependencies**
-   ```bash
-    npm install
-   ```
-
-4. **Start the development server**
-   ```bash
-   npm run dev
-   ```
-
-Your app will be running at [http://localhost:3000](http://localhost:3000)
-
-### Formatting and Linting
-
-Format, lint, and organize imports
-```bash
-npx @biomejs/biome check --write
+```mermaid
+flowchart LR
+  subgraph Capture
+    WF[WhatsApp Flow<br/>photo of QR]
+    WT[WhatsApp text<br/>Base64 / 5 fields]
+    SC[iOS Shortcut<br/>scan QR]
+  end
+  subgraph VT[Val Town · Hono · service role]
+    WH[/whatsapp/webhook/]
+    FL[/api/flow<br/>RSA+AES-GCM/]
+    EX[/api/expense/]
+    AD[/admin/* + cron/]
+  end
+  DB[(Supabase<br/>Postgres · Auth · Realtime · Storage)]
+  subgraph CR[Cloud Run · Next.js]
+    UI[Admin dashboard]
+  end
+  WF --> FL --> DB
+  WT --> WH --> DB
+  SC --> EX --> DB
+  DB -- Realtime + reads (admin JWT, RLS) --> UI
+  UI -- writes with user JWT --> AD --> DB
+  AD -- confirmations, alerts, reports --> WA[(WhatsApp Cloud API)]
 ```
-> For more information on available rules, fixes, and CLI options, refer to the [Biome documentation](https://biomejs.dev/).
 
----
+| Concern | Where |
+|---|---|
+| Capture endpoints, webhook, Flow endpoint, admin API, cron | `valtown/` → Val Town (Deno + Hono) |
+| Schema, RLS, triggers, seed | `supabase/migrations/` |
+| WhatsApp Flow definition + setup script | `whatsapp/flow.json`, `valtown/scripts/flow-setup.mjs` |
+| Dashboard (Next.js 16, shadcn/ui, Tailwind 4) | `src/` |
+| Container, CI/CD | `Dockerfile`, `.github/workflows/`, `scripts/deploy-cloud-run.sh` |
+| Guides | `docs/` |
 
-> [!IMPORTANT]  
-> This project is updated frequently. If you’re working from a fork or an older clone, pull the latest changes before syncing. Some updates may include breaking changes.
+**Data flow rules.** Capture channels → Val Town → Supabase with the **service role key (server-side only)**. The dashboard
+*reads and subscribes to Realtime directly* from Supabase with the logged-in admin's session (RLS enforced). Every
+dashboard *write* goes through the Val Town admin API with the user's Supabase JWT, so each change is audited
+server-side (the DB trigger records the admin's email as the actor).
 
----
+## Environment variables
 
-Contributions are welcome. Feel free to open issues, feature requests, or start a discussion.
+Never hard-coded, never logged (the logger redacts anything named like a secret).
 
+**Dashboard (Cloud Run, from Secret Manager)** – read at *request time* and handed to the browser through
+`window.__ENV__`, so one image runs anywhere:
 
-**Happy Vibe Coding!**
+| Variable | Notes |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | public anon key (RLS is the protection) |
+| `NEXT_PUBLIC_ADMIN_API_URL` | Val Town base URL |
+
+**Val Town**: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET` (or leave empty: JWKS is used),
+`WA_TOKEN`, `WA_PHONE_NUMBER_ID`, `WA_WABA_ID`, `WA_APP_SECRET`, `WA_VERIFY_TOKEN`, `WA_FLOW_PRIVATE_KEY`,
+`WA_FLOW_PRIVATE_KEY_PASSPHRASE`, `ALLOWED_ORIGIN` (the Cloud Run URL). Template: `valtown/.env.example`.
+
+The service role key never reaches the frontend or the browser.
+
+## Setup (local)
+
+```bash
+npm install && npm --prefix valtown install
+cp .env.example .env.local        # fill in
+npm run dev                       # dashboard on :3000
+npm test                          # frontend + backend + RLS tests (no external services needed)
+npm run build && npm run e2e      # browser end-to-end against a local Supabase look-alike
+```
+
+## Key design decisions
+
+* **Duplicates**: unique `(vat_number, invoice_date, total_amount)` as specified, plus a unique index on `raw_qr`, so editing
+  the total in the WhatsApp confirmation screen cannot be used to re-submit the same invoice. Duplicate attempts increment
+  `duplicate_count` (shown as a badge) and alert admins.
+* **VAT warning** (not a rejection): flagged when VAT differs from `vat_rate` × net by more than `0.05 + 0.5 %` of net. The rate is the
+  `vat_rate` setting; the rule lives in a DB trigger and is mirrored in the API.
+* **QR time**: ZATCA timestamps are Saudi local time; naive and `Z` values are read as UTC+3. Dates display as dd/MM/yyyy (Riyadh).
+* **Tokens**: 256-bit random, only the SHA-256 hash is stored, shown once on generation/rotation. Failed attempts are throttled.
+* **Shortcut sends the raw QR text**; the server parses TLV itself (more reliable than parsing binary inside Shortcuts).
+* **WhatsApp Flow is stateless**: the confirmation screen carries the raw QR; it is re-parsed on submit, so a tampered client
+  can only change total / category / notes. Flow sessions are bound to the sender by an HMAC-signed, expiring `flow_token`.
+* **Reports**: cron fires hourly; *when* to send comes from `report_schedule` (Saudi hours) so schedules are editable in the UI.
+  Business-initiated WhatsApp messages outside the 24 h window need an approved template: set `wa_notify_template` in Settings.
+* **Auth**: Supabase email+password and magic link (`shouldCreateUser: false`). `proxy.ts` blocks anonymous visitors; the dashboard
+  layout additionally requires an *active* `app_users` row with role `admin` (otherwise the "Not authorized" page).
+* **Export**: CSV (UTF-8 BOM, formula-injection safe) and Excel-readable `.xls`.
+* Unused template demo pages, demo data and demo auth were removed. `src/components/ui` and `src/components/calendar` are untouched.
+
+## Deploy checklist
+
+1. **Supabase** – create the admin user in *Authentication → Users*, apply migrations
+   (`supabase link --project-ref … && supabase db push`, or paste the four files from `supabase/migrations/` into the SQL editor in order),
+   then `select public.bootstrap_admin('you@company.com','Your Name','+9665…');`. In *Authentication → URL configuration* add the dashboard URL (for magic links).
+2. **Val Town** – env vars from the table above; code is in `applications/eman-expense-api` (sync with `node valtown/scripts/sync.mjs`).
+3. **Dashboard** – `PROJECT_ID=… ./scripts/deploy-cloud-run.sh` or push to `main` with the GitHub Actions secrets in [docs/deployment.md](docs/deployment.md). Then put the Cloud Run URL into Val Town `ALLOWED_ORIGIN`.
+4. **WhatsApp** – follow [docs/deployment.md#meta-whatsapp-setup](docs/deployment.md#meta-whatsapp-setup) (webhook, Flow public key, Flow creation, `wa_flow_id` setting).
+5. **People** – Users page: add staff, WhatsApp numbers, sections; generate Shortcut tokens; build the Shortcut ([docs/ios-shortcut.md](docs/ios-shortcut.md)).
+6. **Smoke test** – send a sample through each channel and watch the dashboard (commands in [docs/test-report.md](docs/test-report.md)).
