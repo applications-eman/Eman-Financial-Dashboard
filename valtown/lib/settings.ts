@@ -1,9 +1,9 @@
 import type { Store } from "./store.ts";
 
 export type Lang = "en" | "ar";
-const CHOOSE = "اختر القسم / Choose the section:";
-const SEND_BAKERY = "تمام: المخبز. أرسل الآن صورة رمز QR للفاتورة أو نص الرمز (Base64). / OK: Bakery. Now send a photo of the invoice QR, or the QR text (Base64).";
-const SEND_GROCERY = "تمام: البقالة. أرسل الآن صورة رمز QR للفاتورة أو نص الرمز (Base64). / OK: Grocery. Now send a photo of the invoice QR, or the QR text (Base64).";
+const CHOOSE = "اختر القسم:\nChoose the section:";
+const SEND_BAKERY = "تمام: المخبز ✅\nأرسل الآن صورة رمز QR للفاتورة أو نص الرمز.\n\nOK: Bakery ✅\nNow send a photo of the invoice QR, or the QR text.";
+const SEND_GROCERY = "تمام: البقالة ✅\nأرسل الآن صورة رمز QR للفاتورة أو نص الرمز.\n\nOK: Grocery ✅\nNow send a photo of the invoice QR, or the QR text.";
 const FALLBACK_TEMPLATES: Record<string, Record<Lang, string>> = {
   choose_section: { en: CHOOSE, ar: CHOOSE },
   send_invoice_bakery: { en: SEND_BAKERY, ar: SEND_BAKERY },
