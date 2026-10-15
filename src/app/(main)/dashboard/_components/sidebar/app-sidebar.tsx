@@ -23,7 +23,7 @@ import { usePreferencesStore } from "@/stores/preferences/preferences-provider";
 
 import { NavMain } from "./nav-main";
 
-export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+export function AppSidebar({ role, ...props }: React.ComponentProps<typeof Sidebar> & { role: "admin" | "accounts" }) {
   const { t, dir } = useI18n();
   const { sidebarVariant, sidebarCollapsible, isSynced } = usePreferencesStore(
     useShallow((s) => ({
@@ -38,12 +38,16 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   const items = useMemo(
     () =>
-      sidebarItems.map((g) => ({
-        ...g,
-        label: t(`nav.group.${g.groupKey}` as MessageKey),
-        items: g.items.map((i) => ({ ...i, title: t(`nav.${i.id}` as MessageKey) })),
-      })),
-    [t],
+      sidebarItems
+        .map((g) => ({
+          ...g,
+          label: t(`nav.group.${g.groupKey}` as MessageKey),
+          items: g.items
+            .filter((i) => !i.roles || i.roles.includes(role))
+            .map((i) => ({ ...i, title: t(`nav.${i.id}` as MessageKey) })),
+        }))
+        .filter((g) => g.items.length > 0),
+    [t, role],
   );
 
   return (

@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
 import { createServerClient } from "@supabase/ssr";
 
@@ -21,13 +22,16 @@ export async function createSupabaseServer() {
   });
 }
 
+export type StaffRole = "admin" | "accounts";
+
 export interface AdminProfile {
   authUserId: string;
   email: string;
   name: string;
+  role: StaffRole;
 }
 
-/** Returns the signed-in admin, or the reason they cannot enter. */
+/** Returns the signed-in admin or accounts user, or the reason they cannot enter. */
 export async function getAdminProfile(): Promise<
   { ok: true; profile: AdminProfile } | { ok: false; reason: "anonymous" | "not_admin" }
 > {
@@ -41,6 +45,15 @@ export async function getAdminProfile(): Promise<
     .select("name, role, active")
     .eq("auth_user_id", user.id)
     .maybeSingle();
-  if (!row || row.role !== "admin" || !row.active) return { ok: false, reason: "not_admin" };
-  return { ok: true, profile: { authUserId: user.id, email: user.email ?? "", name: row.name } };
+  if (!row || !row.active || (row.role !== "admin" && row.role !== "accounts"))
+    return { ok: false, reason: "not_admin" };
+  return { ok: true, profile: { authUserId: user.id, email: user.email ?? "", name: row.name, role: row.role } };
+}
+
+/** Pages that only admins may open. Accounts users are sent to their own page. */
+export async function requireAdmin(): Promise<AdminProfile> {
+  const gate = await getAdminProfile();
+  if (!gate.ok) redirect(gate.reason === "anonymous" ? "/auth/login" : "/unauthorized");
+  if (gate.profile.role !== "admin") redirect("/dashboard/alerts");
+  return gate.profile;
 }

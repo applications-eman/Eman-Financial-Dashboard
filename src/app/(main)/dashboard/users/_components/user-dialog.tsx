@@ -64,7 +64,7 @@ export function UserDialog({
       role: f.role,
       sections: f.sections,
       active: f.active,
-      ...(f.role === "admin" && f.auth ? { auth_user_id: f.auth.trim() } : {}),
+      ...(f.role !== "staff" && f.auth ? { auth_user_id: f.auth.trim() } : {}),
     };
     try {
       if (user) await adminSend("PATCH", `/admin/users/${user.id}`, body);
@@ -120,10 +120,11 @@ export function UserDialog({
               options={[
                 { value: "staff", label: t("role.staff") },
                 { value: "admin", label: t("role.admin") },
+                { value: "accounts", label: t("role.accounts") },
               ]}
             />
           </div>
-          {f.role === "admin" ? (
+          {f.role !== "staff" ? (
             <div className="space-y-1.5">
               <Label htmlFor="u-auth">{t("users.authId")}</Label>
               <Input

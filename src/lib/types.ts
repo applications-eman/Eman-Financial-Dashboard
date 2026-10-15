@@ -7,7 +7,7 @@ export type Status = (typeof STATUSES)[number];
 export interface Expense {
   id: string;
   seller_name: string | null;
-  vat_number: string;
+  vat_number: string | null;
   invoice_date: string;
   total_amount: number;
   vat_amount: number;
@@ -29,7 +29,7 @@ export interface AppUser {
   auth_user_id: string | null;
   name: string;
   phone_e164: string | null;
-  role: "admin" | "staff";
+  role: "admin" | "staff" | "accounts";
   sections: Section[];
   active: boolean;
   has_token: boolean;

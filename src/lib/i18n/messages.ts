@@ -1,6 +1,8 @@
 import type { Lang } from "./config";
+import { revenueAr, revenueEn } from "./messages-revenue";
 
 const en = {
+  ...revenueEn,
   // common
   "common.cancel": "Cancel",
   "common.confirm": "Confirm",
@@ -218,6 +220,7 @@ const en = {
 export type MessageKey = keyof typeof en;
 
 const ar: Record<MessageKey, string> = {
+  ...revenueAr,
   "common.cancel": "إلغاء",
   "common.confirm": "تأكيد",
   "common.copy": "نسخ",

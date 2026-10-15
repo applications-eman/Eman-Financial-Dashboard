@@ -57,7 +57,7 @@ export function ExpenseDialog({ section, expense, open, onOpenChange, categories
       expense
         ? {
             seller_name: expense.seller_name ?? "",
-            vat_number: expense.vat_number,
+            vat_number: expense.vat_number ?? "",
             invoice_date: toLocal(expense.invoice_date),
             total: String(expense.total_amount),
             vat: String(expense.vat_amount),
@@ -84,7 +84,7 @@ export function ExpenseDialog({ section, expense, open, onOpenChange, categories
     try {
       const base = {
         seller_name: f.seller_name,
-        vat_number: f.vat_number,
+        vat_number: f.vat_number.trim(),
         invoice_date: fromLocal(f.invoice_date),
         total_amount: Number(f.total),
         vat_amount: Number(f.vat),
@@ -135,9 +135,7 @@ export function ExpenseDialog({ section, expense, open, onOpenChange, categories
                 id="e-vatno"
                 dir="ltr"
                 inputMode="numeric"
-                pattern="\d{15}"
-                maxLength={15}
-                required
+                maxLength={20}
                 value={f.vat_number}
                 onChange={(e) => setF({ ...f, vat_number: e.target.value })}
               />,

@@ -28,6 +28,14 @@ export const THEME_PRESET_OPTIONS = [
     },
   },
   {
+    label: "Emerald",
+    value: "emerald",
+    primary: {
+      light: "oklch(0.64 0.17 160)",
+      dark: "oklch(0.64 0.17 160)",
+    },
+  },
+  {
     label: "Soft Pop",
     value: "soft-pop",
     primary: {

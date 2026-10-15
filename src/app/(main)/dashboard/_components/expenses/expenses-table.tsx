@@ -188,6 +188,12 @@ export function ExpensesTable({
                       {t("badge.vatWarning")}
                     </Badge>
                   ) : null}
+                  {r.warnings?.includes("vat_number_invalid") ? (
+                    <Badge variant="outline" className="border-amber-500 text-amber-600 dark:text-amber-400">
+                      <AlertTriangle aria-hidden="true" />
+                      {t("badge.vatInvalid")}
+                    </Badge>
+                  ) : null}
                   {r.warnings?.includes("future_date") ? (
                     <Badge variant="outline">{t("badge.futureDate")}</Badge>
                   ) : null}
