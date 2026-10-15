@@ -95,16 +95,21 @@ async function scan(d: Record<string, any>, section: Section, phone: string, dep
       logger.warn("flow photo handling failed", { error: errMsg(e) });
     }
   }
-  if (!rawQr) return { screen: "RETRY", data: { section, image_path: imagePath ?? "", message: "تعذرت قراءة رمز QR. أعد التصوير بوضوح أو الصق النص. / Could not read the QR. Retake a clearer photo or paste the text." } };
+  // A Flow's routing model cannot loop (RETRY -> RETRY), so the SECOND failed attempt ends the Flow with advice.
+  const retryOrFail = (message: string): Screen =>
+    d.action === "retry"
+      ? failure("تعذرت القراءة مرة أخرى. أرسل نص رمز QR كرسالة في المحادثة مباشرة. / Still unreadable. Send the QR text as a normal chat message instead.")
+      : { screen: "RETRY", data: { section, image_path: imagePath ?? "", message } };
+  if (!rawQr) return retryOrFail("تعذرت قراءة رمز QR. أعد التصوير بوضوح أو الصق النص. / Could not read the QR. Retake a clearer photo or paste the text.");
   let p;
   try { p = parseZatcaQr(rawQr); }
-  catch (e) { return { screen: "RETRY", data: { section, image_path: imagePath ?? "", message: `${errMsg(e)} — أعد المحاولة / try again` } }; }
+  catch (e) { return retryOrFail(`${errMsg(e)} — أعد المحاولة / try again`); }
   return {
     screen: "CONFIRM",
     data: {
       section, raw_qr: p.raw_qr, image_path: imagePath ?? d.image_path ?? "",
       summary: `${p.seller_name}\nVAT: ${p.vat_number}\n${p.invoice_date.replace("T", " ").slice(0, 16)}\nVAT amount: ${money2(p.vat_amount)} SAR`,
-      total: money2(p.total_amount), notes: "", categories: await loadCategories(deps.store, section),
+      total: p.total_amount, notes: "", categories: await loadCategories(deps.store, section),
     },
   };
 }

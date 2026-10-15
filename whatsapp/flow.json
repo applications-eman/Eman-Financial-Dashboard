@@ -12,7 +12,6 @@
     ],
     "RETRY": [
       "CONFIRM",
-      "RETRY",
       "FAILURE"
     ],
     "CONFIRM": [
@@ -224,8 +223,8 @@
           "__example__": "Seller\nVAT: 312028501300003"
         },
         "total": {
-          "type": "string",
-          "__example__": "145.52"
+          "type": "number",
+          "__example__": 145.52
         },
         "notes": {
           "type": "string",

@@ -143,13 +143,13 @@ describe("POST /api/flow", () => {
     const scan = await handleFlowRequest({ action: "data_exchange", flow_token: token, data: { action: "scan", section: "bakery", photo: [media] } }, deps(f));
     assert.equal(scan.screen, "CONFIRM");
     const d = (scan as any).data;
-    assert.equal(d.total, "145.52");
+    assert.equal(d.total, 145.52); // number: the Flow's numeric TextInput requires a number
     assert.match(d.summary, /شركة مخابز ايمان جدة للخبز/);
     assert.ok(d.image_path.startsWith("flow/966500000002/"));
     assert.equal(store.objects.size, 1);
     assert.deepEqual(d.categories, [{ id: "Packaging", title: "تغليف / Packaging" }]);
 
-    const confirm = (extra: object = {}) => handleFlowRequest({ action: "data_exchange", flow_token: token, data: { action: "confirm", section: "bakery", raw_qr: d.raw_qr, image_path: d.image_path, total: d.total, notes: "morning delivery", category: "Packaging", ...extra } }, deps(f));
+    const confirm = (extra: object = {}) => handleFlowRequest({ action: "data_exchange", flow_token: token, data: { action: "confirm", section: "bakery", raw_qr: d.raw_qr, image_path: d.image_path, total: String(d.total), notes: "morning delivery", category: "Packaging", ...extra } }, deps(f));
     const done = await confirm({ total: "150.00" });
     assert.equal((done as any).screen, "SUCCESS");
     const row = store.tables.bakery_expenses[0];
@@ -168,6 +168,9 @@ describe("POST /api/flow", () => {
     const { f, media } = await photoFetch(blank);
     const retry = await handleFlowRequest({ action: "data_exchange", flow_token: token, data: { action: "scan", section: "bakery", photo: [media] } }, deps(f));
     assert.equal(retry.screen, "RETRY");
+    // a second failed attempt must end the Flow (a Flow routing model cannot loop RETRY -> RETRY)
+    const again = await handleFlowRequest({ action: "data_exchange", flow_token: token, data: { action: "retry", section: "bakery", photo: [media] } }, deps(f));
+    assert.equal(again.screen, "FAILURE");
     const viaText = await handleFlowRequest({ action: "data_exchange", flow_token: token, data: { action: "retry", section: "bakery", qr_text: SAMPLE_QR } }, deps(f));
     assert.equal(viaText.screen, "CONFIRM");
   });
