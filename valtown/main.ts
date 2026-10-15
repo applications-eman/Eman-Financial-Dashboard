@@ -3,6 +3,7 @@ import { Hono } from "npm:hono@4";
 import { adminRoutes } from "./routes/admin.ts";
 import { expenseRoutes } from "./routes/expense.ts";
 import { flowRoutes } from "./routes/flow.ts";
+import { reviewRoutes } from "./routes/revenue.ts";
 import { webhookRoutes } from "./routes/webhook.ts";
 import { errMsg, logger } from "./lib/log.ts";
 
@@ -12,6 +13,7 @@ app.route("/", expenseRoutes);
 app.route("/", webhookRoutes);
 app.route("/", flowRoutes);
 app.route("/", adminRoutes);
+app.route("/", reviewRoutes);
 app.onError((e, c) => {
   logger.error("unhandled", { path: new URL(c.req.url).pathname, error: errMsg(e) });
   return c.json({ error: "internal error" }, 500);

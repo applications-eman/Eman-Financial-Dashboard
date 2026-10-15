@@ -374,6 +374,17 @@ $$;
 revoke all on function public.salesman_stats(integer) from public, anon, authenticated;
 grant execute on function public.salesman_stats(integer) to service_role;
 
+create or replace function public.salesman_daily_totals(p_days integer default 15)
+returns table (salesman_id integer, salesman_name text, day date, total numeric, invoices bigint)
+language sql stable set search_path = public as $$
+  select salesman_id, max(salesman_name), invoice_date, sum(amount_total), count(*)
+  from public.sales_invoices
+  where kind = 'invoice' and state = 'posted' and invoice_date >= current_date - p_days
+  group by salesman_id, invoice_date;
+$$;
+revoke all on function public.salesman_daily_totals(integer) from public, anon, authenticated;
+grant execute on function public.salesman_daily_totals(integer) to service_role;
+
 -- Missing invoice numbers (gaps) in the recent past; number format "PREFIX/YYYY/NNNNN"
 create or replace function public.invoice_number_gaps(p_since date default current_date - 3)
 returns table (gap_from bigint, gap_to bigint, prefix text)
@@ -436,7 +447,7 @@ insert into public.app_settings (key, value) values
     "off_hours": {"enabled": true, "severity": "info"},
     "sales_drop": {"enabled": true, "severity": "warning", "drop_pct": 60, "check_after_hour": 15, "min_usual_amount": 500},
     "no_sales_by_time": {"enabled": false, "severity": "info", "by_hour": 11},
-    "unpaid_invoice": {"enabled": true, "severity": "info", "after_hours": 24},
+    "unpaid_invoice": {"enabled": false, "severity": "info", "after_hours": 72},
     "zatca_delay_b2b": {"enabled": true, "severity": "critical"},
     "zatca_delay_b2c": {"enabled": true, "severity": "warning"},
     "zatca_error": {"enabled": true, "severity": "critical"},

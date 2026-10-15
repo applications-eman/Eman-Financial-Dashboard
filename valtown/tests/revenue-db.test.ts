@@ -126,6 +126,8 @@ describe("helpers for the alert engine", () => {
     assert.deepEqual(gaps.map((g) => [Number(g.gap_from), Number(g.gap_to), g.prefix]), [[12, 13, "INV/2099"]]);
     const st = await as("service_role", null, "select * from public.salesman_stats(30)");
     assert.ok(Array.isArray(st));
+    const dt = await as("service_role", null, "select * from public.salesman_daily_totals(15)");
+    assert.ok(dt.length >= 1);
   });
   it("db_size_bytes works for admins only", async () => {
     assert.ok(Number((await as("authenticated", ADMIN, "select public.db_size_bytes() as s"))[0].s) > 0);

@@ -11,6 +11,7 @@ import { verifySupabaseJwt } from "../lib/jwt.ts";
 import { logger } from "../lib/log.ts";
 import { rateLimit } from "../lib/ratelimit.ts";
 import { type Filter, getStore, type Row, type Store } from "../lib/store.ts";
+import { revenueAdmin } from "./revenue.ts";
 import { e164, isSection, SECTIONS, sectionTable } from "../lib/validate.ts";
 
 type Vars = { Variables: { admin: Row; actor: string; store: Store } };
@@ -55,7 +56,7 @@ adminRoutes.get("/admin/me", (c) => {
 // ---------------------------------------------------------------- expenses
 const ALLOWED_PATCH = ["seller_name", "vat_number", "invoice_date", "total_amount", "vat_amount", "category", "notes", "status"] as const;
 const patchSchema = z.object({
-  seller_name: z.string().max(300), vat_number: z.string().regex(/^\d{15}$/), invoice_date: z.string().refine((s) => !Number.isNaN(Date.parse(s))),
+  seller_name: z.string().max(300), vat_number: z.string().regex(/^\d{0,20}$/).transform((v) => v || null).nullable(), invoice_date: z.string().refine((s) => !Number.isNaN(Date.parse(s))),
   total_amount: z.number().min(0), vat_amount: z.number().min(0), category: z.string().max(100).nullable(), notes: z.string().max(1000).nullable(),
   status: z.enum(["new", "reviewed", "exported"]),
 }).partial().strict();
@@ -135,7 +136,7 @@ adminRoutes.get("/admin/expenses/:section/:id/image", async (c) => {
 
 // ---------------------------------------------------------------- users & tokens
 const userSchema = z.object({
-  name: z.string().trim().min(1).max(100), phone_e164: e164.nullable().optional(), role: z.enum(["admin", "staff"]).default("staff"),
+  name: z.string().trim().min(1).max(100), phone_e164: e164.nullable().optional(), role: z.enum(["admin", "staff", "accounts"]).default("staff"),
   sections: z.array(z.enum(SECTIONS)).default([]), active: z.boolean().default(true), auth_user_id: z.string().uuid().nullable().optional(),
 });
 const publicUser = ({ token_hash, ...u }: Row) => ({ ...u, has_token: Boolean(token_hash) });
@@ -155,7 +156,7 @@ adminRoutes.patch("/admin/users/:id", async (c) => {
   const p = userSchema.partial().safeParse(await body(c));
   if (!p.success) return bad(c, zerr(p.error));
   const id = c.req.param("id");
-  if (id === c.get("admin").id && (p.data.active === false || p.data.role === "staff")) return bad(c, "you cannot demote or deactivate yourself", 422);
+  if (id === c.get("admin").id && (p.data.active === false || (p.data.role !== undefined && p.data.role !== "admin"))) return bad(c, "you cannot demote or deactivate yourself", 422);
   const rows = await c.get("store").update("app_users", [["id", "eq", id]], p.data, c.get("actor"));
   return rows[0] ? c.json(publicUser(rows[0])) : bad(c, "not found", 404);
 });
@@ -247,3 +248,5 @@ adminRoutes.get("/admin/export", async (c) => {
   c.header("Content-Disposition", `attachment; filename="expenses-${new Date().toISOString().slice(0, 10)}.${xls ? "xls" : "csv"}"`);
   return c.body(xls ? toXls(all) : toCsv(all));
 });
+
+adminRoutes.route("/", revenueAdmin);

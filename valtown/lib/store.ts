@@ -2,7 +2,7 @@
 // MemoryStore is used by tests and mirrors the DB constraints that matter (unique dedupe key).
 import { env, requireEnv } from "./env.ts";
 
-export type Op = "eq" | "neq" | "gte" | "lte" | "ilike" | "in" | "is";
+export type Op = "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "ilike" | "in" | "is";
 export type Filter = [column: string, op: Op, value: unknown];
 export interface Query {
   filters?: Filter[];
@@ -18,6 +18,10 @@ export interface Store {
   select(table: string, q?: Query): Promise<{ rows: Row[]; count: number }>;
   insert(table: string, row: Row, actor?: string): Promise<InsertResult>;
   upsert(table: string, row: Row, onConflict: string, actor?: string): Promise<Row>;
+  /** Bulk upsert (one request). Returns the number of rows written. */
+  upsertMany(table: string, rows: Row[], onConflict: string): Promise<number>;
+  /** Calls a Postgres function (PostgREST /rpc). Only service-role functions are reachable here. */
+  rpc(fn: string, args?: Row): Promise<Row[]>;
   update(table: string, filters: Filter[], patch: Row, actor?: string): Promise<Row[]>;
   remove(table: string, filters: Filter[], actor?: string): Promise<number>;
   uploadObject(path: string, bytes: Uint8Array, contentType: string): Promise<void>;
@@ -81,6 +85,20 @@ export class SupabaseStore implements Store {
     if (!r.ok) throw new Error(`upsert ${table} failed: ${r.status}`);
     return ((await r.json()) as Row[])[0];
   }
+  async upsertMany(table: string, rows: Row[], onConflict: string) {
+    if (!rows.length) return 0;
+    const r = await this.f(`${this.url}/rest/v1/${table}?on_conflict=${enc(onConflict)}`, {
+      method: "POST", headers: this.headers(undefined, { Prefer: "return=minimal,resolution=merge-duplicates" }), body: JSON.stringify(rows),
+    });
+    if (!r.ok) throw new Error(`upsertMany ${table} failed: ${r.status} ${(await r.text()).slice(0, 200)}`);
+    return rows.length;
+  }
+  async rpc(fn: string, args: Row = {}) {
+    const r = await this.f(`${this.url}/rest/v1/rpc/${fn}`, { method: "POST", headers: this.headers(), body: JSON.stringify(args) });
+    if (!r.ok) throw new Error(`rpc ${fn} failed: ${r.status} ${(await r.text()).slice(0, 200)}`);
+    const j = await r.json();
+    return (Array.isArray(j) ? j : [j]) as Row[];
+  }
   async update(table: string, filters: Filter[], patch: Row, actor?: string) {
     const r = await this.f(`${this.url}/rest/v1/${table}${this.qs({ filters })}`, { method: "PATCH", headers: this.headers(actor, { Prefer: "return=representation" }), body: JSON.stringify(patch) });
     if (!r.ok) throw new Error(`update ${table} failed: ${r.status} ${(await r.text()).slice(0, 200)}`);
@@ -123,6 +141,7 @@ const DEDUPE: Record<string, string[][]> = {
   grocery_expenses: EXPENSE_KEYS,
   whatsapp_events: [["wa_message_id"]],
   app_users: [["phone_e164"], ["token_hash"]],
+  alerts: [["fingerprint"]],
 };
 
 function matches(row: Row, [c, op, v]: Filter): boolean {
@@ -130,7 +149,9 @@ function matches(row: Row, [c, op, v]: Filter): boolean {
   switch (op) {
     case "eq": return x === v || String(x) === String(v);
     case "neq": return x !== v;
+    case "gt": return x > (v as never);
     case "gte": return x >= (v as never);
+    case "lt": return x < (v as never);
     case "lte": return x <= (v as never);
     case "ilike": return new RegExp(`^${String(v).replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*")}$`, "i").test(String(x ?? ""));
     case "in": return (v as unknown[]).includes(x);
@@ -159,7 +180,7 @@ export class MemoryStore implements Store {
       if (keys.every((k) => row[k] != null) && this.t(table).some((r) => keys.every((k) => r[k] === row[k]))) return { ok: false, conflict: true };
     }
     if (table.endsWith("_expenses")) {
-      if (!/^\d{15}$/.test(row.vat_number ?? "") || row.total_amount < 0 || row.vat_amount < 0 || row.vat_amount > row.total_amount)
+      if (row.total_amount < 0 || row.vat_amount < 0 || row.vat_amount > row.total_amount)
         return { ok: false, conflict: false, error: "check constraint" };
       row = { status: "new", warnings: [], duplicate_count: 0, ...row };
     }
@@ -173,6 +194,16 @@ export class MemoryStore implements Store {
     if (ex) { Object.assign(ex, row); this.audit.push({ actor, op: "UPDATE", table }); return { ...ex }; }
     const r = await this.insert(table, row, actor);
     return (r as { row: Row }).row;
+  }
+  async upsertMany(table: string, rows: Row[], onConflict: string) {
+    for (const row of rows) await this.upsert(table, row, onConflict);
+    return rows.length;
+  }
+  rpcHandlers: Record<string, (args: Row) => Row[]> = {};
+  async rpc(fn: string, args: Row = {}) {
+    const h = this.rpcHandlers[fn];
+    if (!h) throw new Error(`rpc ${fn} not available in MemoryStore`);
+    return h(args);
   }
   async update(table: string, filters: Filter[], patch: Row, actor?: string) {
     const hit = this.t(table).filter((r) => filters.every((f) => matches(r, f)));
