@@ -65,6 +65,19 @@ export async function sendNotification(store: Store, to: string, text: string, d
   return sendText(to, text, deps);
 }
 
+/** Interactive "reply buttons" message (max 3 buttons, title max 20 chars). Works inside the 24h chat window; no Flow needed. */
+export async function sendButtons(to: string, body: string, buttons: { id: string; title: string }[], deps: WaDeps = defaultDeps): Promise<boolean> {
+  try {
+    return await post({
+      to: digits(to), type: "interactive",
+      interactive: { type: "button", body: { text: body }, action: { buttons: buttons.slice(0, 3).map((b) => ({ type: "reply", reply: { id: b.id, title: b.title.slice(0, 20) } })) } },
+    }, deps);
+  } catch (e) {
+    logger.error("sendButtons failed", { to: maskPhone(to), error: errMsg(e) });
+    return false;
+  }
+}
+
 export async function sendFlowMessage(to: string, o: { flowId: string; flowToken: string; body: string; cta: string; screen?: string; mode?: "draft" | "published" }, deps: WaDeps = defaultDeps): Promise<boolean> {
   try {
     return await post({

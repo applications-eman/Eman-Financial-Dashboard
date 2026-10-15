@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { redact, sink, logger } from "../lib/log.ts";
 import { rateLimit } from "../lib/ratelimit.ts";
-import { sendFlowMessage, waFetch } from "../lib/whatsapp.ts";
+import { sendButtons, sendFlowMessage, waFetch } from "../lib/whatsapp.ts";
 import { riyadhParts, runScheduledReports } from "../lib/reports.ts";
 import { SupabaseStore, MemoryStore } from "../lib/store.ts";
 import { saveExpense } from "../lib/expenses.ts";
@@ -49,6 +49,20 @@ describe("Flow message mode", () => {
     delete process.env.WA_TOKEN; delete process.env.WA_PHONE_NUMBER_ID;
     assert.equal(bodies[0].interactive.action.parameters.mode, undefined);
     assert.equal(bodies[1].interactive.action.parameters.mode, "draft");
+  });
+});
+describe("Reply buttons message", () => {
+  it("builds a WhatsApp interactive button payload (max 3, titles <= 20 chars)", async () => {
+    process.env.WA_TOKEN = "t"; process.env.WA_PHONE_NUMBER_ID = "1";
+    const bodies: any[] = [];
+    const f = (async (_u: string, init: RequestInit) => { bodies.push(JSON.parse(String(init.body))); return new Response("{}", { status: 200 }); }) as unknown as typeof fetch;
+    await sendButtons("+966500000002", "choose", [{ id: "sec:bakery", title: "المخبز / Bakery" }, { id: "b", title: "x".repeat(40) }], { f, sleep: async () => {} });
+    delete process.env.WA_TOKEN; delete process.env.WA_PHONE_NUMBER_ID;
+    const i = bodies[0].interactive;
+    assert.equal(i.type, "button");
+    assert.equal(i.action.buttons[0].reply.id, "sec:bakery");
+    assert.ok(i.action.buttons[1].reply.title.length <= 20);
+    assert.equal(bodies[0].to, "966500000002");
   });
 });
 describe("VAT warning rule (mirrors DB trigger)", () => {

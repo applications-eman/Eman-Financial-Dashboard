@@ -102,3 +102,10 @@ update `ALLOWED_ORIGIN` in Val Town and the Supabase *URL configuration* to the 
 
 `scripts/smoke-test.mjs` (header lists the env vars) posts sample payloads to the Shortcut, webhook and Flow endpoints, confirms the rows through the admin's RLS-protected
 session, checks the audit log, and cleans up. Keep a dashboard tab open while it runs to see the live toast.
+
+## WhatsApp capture without the Flow (default)
+
+If Meta has not yet published your Flow (e.g. error 139000 "Blocked by Integrity"), the bot uses **reply buttons** instead:
+`Hi` / `مصروف` -> [Bakery] [Grocery] -> "send the QR photo or QR text" -> "Saved ✅" or "Duplicate ⚠️".
+People registered with one section skip the buttons. The chosen section is remembered for 15 minutes or until one invoice is saved.
+Switch to the form later by adding the Setting `wa_capture_mode` = `"flow"` (and `wa_flow_id`); with `"buttons"` or no setting the buttons are used.

@@ -1,7 +1,13 @@
 import type { Store } from "./store.ts";
 
 export type Lang = "en" | "ar";
+const CHOOSE = "اختر القسم / Choose the section:";
+const SEND_BAKERY = "تمام: المخبز. أرسل الآن صورة رمز QR للفاتورة أو نص الرمز (Base64). / OK: Bakery. Now send a photo of the invoice QR, or the QR text (Base64).";
+const SEND_GROCERY = "تمام: البقالة. أرسل الآن صورة رمز QR للفاتورة أو نص الرمز (Base64). / OK: Grocery. Now send a photo of the invoice QR, or the QR text (Base64).";
 const FALLBACK_TEMPLATES: Record<string, Record<Lang, string>> = {
+  choose_section: { en: CHOOSE, ar: CHOOSE },
+  send_invoice_bakery: { en: SEND_BAKERY, ar: SEND_BAKERY },
+  send_invoice_grocery: { en: SEND_GROCERY, ar: SEND_GROCERY },
   welcome: { en: "Welcome {{name}}. Tap the button to record an invoice.", ar: "أهلاً {{name}}. اضغط الزر لتسجيل فاتورة." },
   saved: { en: "Saved ✅\nSection: {{section}}\nSeller: {{seller}}\nTotal: {{total}} SAR\nVAT: {{vat}} SAR", ar: "تم الحفظ ✅\nالقسم: {{section}}\nالمورد: {{seller}}\nالإجمالي: {{total}} ر.س\nالضريبة: {{vat}} ر.س" },
   duplicate: { en: "Duplicate ⚠️ This invoice was already recorded.", ar: "مكررة ⚠️ هذه الفاتورة مسجلة مسبقاً." },

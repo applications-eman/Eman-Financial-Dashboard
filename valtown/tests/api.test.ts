@@ -102,6 +102,50 @@ describe("WhatsApp webhook", () => {
   });
 });
 
+describe("WhatsApp guided capture (reply buttons, no Flow)", () => {
+  const text = (id: string, from: string, body: string) => JSON.stringify({ entry: [{ changes: [{ value: { messages: [{ id, from, type: "text", text: { body } }] } }] }] });
+  const tap = (id: string, from: string, btn: string) => JSON.stringify({ entry: [{ changes: [{ value: { messages: [{ id, from, type: "interactive", interactive: { type: "button_reply", button_reply: { id: btn, title: "x" } } }] } }] }] });
+  const send = async (raw: string) => (await (await post("/whatsapp/webhook", raw, { "x-hub-signature-256": sign(raw) })).json()).results[0];
+  const qr2 = encodeZatcaQr({ 1: "Guided Co", 2: "300000000000003", 3: "2026-09-05T10:00:00", 4: "115.00", 5: "15.00" });
+
+  it("multi-section admin: hi -> buttons -> tap Grocery -> QR text is saved to GROCERY, then pending is cleared", async () => {
+    const admin = "966500000001";
+    assert.equal(await send(text("m1", admin, "مصروف")), "capture_started");
+    assert.equal(await send(tap("m2", admin, "sec:grocery")), "section_selected");
+    assert.equal(await send(text("m3", admin, qr2)), "saved");
+    assert.equal(store.tables.grocery_expenses.length, 1);
+    assert.equal(store.tables.bakery_expenses?.length ?? 0, 0);
+    // next invoice without choosing again must ask for the section instead of guessing
+    const qr3 = encodeZatcaQr({ 1: "Guided Co", 2: "300000000000003", 3: "2026-09-06T10:00:00", 4: "230.00", 5: "30.00" });
+    assert.equal(await send(text("m4", admin, qr3)), "ambiguous_section");
+    assert.equal(store.tables.grocery_expenses.length, 1);
+  });
+  it("duplicate through the guided path is reported and not stored twice", async () => {
+    const admin = "966500000001";
+    await send(tap("d1", admin, "sec:bakery"));
+    assert.equal(await send(text("d2", admin, qr2)), "saved");
+    await send(tap("d3", admin, "sec:bakery"));
+    assert.equal(await send(text("d4", admin, qr2)), "duplicate");
+    assert.equal(store.tables.bakery_expenses.length, 1);
+  });
+  it("single-section staff skip the buttons; 'Hi,' with a comma works; unreadable text keeps the section selected", async () => {
+    const ali = "966500000002";
+    assert.equal(await send(text("s1", ali, "Hi,")), "capture_started");
+    assert.equal(await send(text("s2", ali, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")), "invalid");
+    assert.equal(await send(text("s3", ali, qr2)), "saved");
+    assert.equal(store.tables.bakery_expenses.length, 1);
+  });
+  it("a staff member cannot pick a section they do not have; strangers' taps are ignored", async () => {
+    assert.equal(await send(tap("x1", "966500000002", "sec:grocery")), "section_not_allowed");
+    assert.equal(await send(tap("x2", "966599999999", "sec:bakery")), "ignored_unregistered");
+  });
+  it("pending choice expires after 15 minutes", async () => {
+    const { setPending, getPending } = await import("../lib/wa-session.ts");
+    await setPending(store, "+966500000001", "bakery", Date.now() - 16 * 60_000);
+    assert.equal(await getPending(store, "+966500000001"), null);
+  });
+});
+
 describe("Admin API auth", () => {
   const now = Math.floor(Date.now() / 1000);
   const jwt = (sub: string, extra: Record<string, unknown> = {}, secret = ENV.SUPABASE_JWT_SECRET) =>
