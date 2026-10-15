@@ -35,6 +35,7 @@
       "**",
       "!.github",
       "!.husky",
+      "!valtown",
       "!node_modules",
       "!.next",
       "!dist",

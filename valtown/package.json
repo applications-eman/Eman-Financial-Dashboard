@@ -1,0 +1,28 @@
+{
+  "name": "eman-valtown-backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --import ./tests/register.mjs --test tests/*.test.ts",
+    "typecheck": "tsc -p .",
+    "sync": "node scripts/sync.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10",
+    "@types/node": "^26.6.5",
+    "@types/pngjs": "^6.0.5",
+    "@types/qrcode": "^1.5.6",
+    "hono": "^4.13.13",
+    "jpeg-js": "^0.4.4",
+    "jsqr": "^1.4.0",
+    "pngjs": "^7.0.0",
+    "qrcode": "^1.5.4",
+    "zod": "^4.6.7"
+  },
+  "private": true,
+  "type": "module"
+}

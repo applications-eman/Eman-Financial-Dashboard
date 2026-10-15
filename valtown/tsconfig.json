@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler", "strict": true, "noEmit": true,
+    "allowImportingTsExtensions": true, "skipLibCheck": true, "types": ["node"], "lib": ["ES2022", "DOM"],
+    "baseUrl": ".",
+    "paths": {
+      "npm:zod@4.6.7": ["node_modules/zod"],
+      "npm:hono@4": ["node_modules/hono"],
+      "npm:hono@4/cors": ["node_modules/hono/dist/types/middleware/cors"],
+      "npm:jsqr@1.4.0": ["node_modules/jsqr"],
+      "npm:jpeg-js@0.4.4": ["node_modules/jpeg-js"],
+      "npm:pngjs@7.0.0": ["node_modules/@types/pngjs"]
+    }
+  },
+  "include": ["**/*.ts"], "exclude": ["node_modules"]
+}
