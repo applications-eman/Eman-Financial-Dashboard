@@ -84,7 +84,10 @@ export async function insertAlerts(store: Store, drafts: AlertDraft[]): Promise<
   for (const d of drafts) {
     const res = await store.insert("alerts", { ...d, section: d.section ?? "bakery", amount: d.amount ?? null });
     if (res.ok) created++;
-    else if (!res.conflict) logger.warn("alert insert failed", { rule: d.rule_key, error: res.error });
+    else if (res.conflict) {
+      // a repeat burst that grows (3rd, 4th invoice) updates the same alert so the card lists every invoice
+      if (d.rule_key === "duplicate_burst") await store.update("alerts", [["fingerprint", "eq", d.fingerprint]], { title: d.title, detail: d.detail, odoo_id: d.odoo_id ?? null, amount: d.amount ?? null });
+    } else logger.warn("alert insert failed", { rule: d.rule_key, error: res.error });
   }
   return created;
 }

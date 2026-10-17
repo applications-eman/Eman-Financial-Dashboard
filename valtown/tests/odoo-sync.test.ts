@@ -219,6 +219,12 @@ test("duplicate burst: a single invoice is no alert, a second identical one is, 
   assert.equal(hits.length, 1);
   assert.equal(hits[0].detail.count, 2);
   assert.deepEqual(hits[0].detail.invoices.map((i: any) => i.number), ["INV/2026/1", "INV/2026/2"]);
+  // a third identical invoice in the same hour grows the SAME alert and lists all three
+  await runSyncCycle(s, fakeOdoo([same(1, "50"), same(2, "52"), same(3, "55")]), base);
+  const grown = (s.tables.alerts ?? []).filter((a) => a.rule_key === "duplicate_burst");
+  assert.equal(grown.length, 1);
+  assert.equal(grown[0].detail.count, 3);
+  assert.deepEqual(grown[0].detail.invoices.map((i: any) => i.number), ["INV/2026/1", "INV/2026/2", "INV/2026/3"]);
   // a different amount is not a repeat
   await runSyncCycle(s, fakeOdoo([same(1, "50"), same(2, "52"), mv(3, { partner_id: [500, "Same Cust"], amount_total: 99, create_date: "2026-10-15 08:53:00", write_date: "2026-10-15 08:53:01" })]), base);
   assert.equal((s.tables.alerts ?? []).filter((a) => a.rule_key === "duplicate_burst").length, 1);
