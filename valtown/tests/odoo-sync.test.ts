@@ -208,3 +208,15 @@ test("after the import, later changes are picked up and nothing is lost at the b
   await runSyncCycle(s, fakeOdoo(moves), base);
   assert.equal(s.tables.sales_invoices.length, 4);
 });
+
+test("duplicate burst counts real invoices only: two identical is no alert, the third is", async () => {
+  const s = mem();
+  const same = (id: number, t: string) => mv(id, { partner_id: [500, "Same Cust"], amount_total: 24.5, amount_untaxed: 21.3, amount_tax: 3.2, create_date: `2026-10-15 08:${t}:00`, write_date: `2026-10-15 08:${t}:01` });
+  await runSyncCycle(s, fakeOdoo([same(1, "50"), same(2, "52")]), base);
+  assert.equal((s.tables.alerts ?? []).filter((a) => a.rule_key === "duplicate_burst").length, 0);
+  await runSyncCycle(s, fakeOdoo([same(1, "50"), same(2, "52"), same(3, "54")]), base);
+  const hits = (s.tables.alerts ?? []).filter((a) => a.rule_key === "duplicate_burst");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].detail.count, 3);
+  assert.ok(hits[0].detail.issued_at);
+});

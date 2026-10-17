@@ -104,7 +104,7 @@ async function buildEventCtx(store: Store, rows: SalesRow[], now: Date): Promise
     creditNotesOnDay: async (sid, day) => (await store.select("sales_invoices", { columns: "odoo_id", filters: [["salesman_id", "eq", sid], ["kind", "eq", "credit_note"], ["state", "eq", "posted"], ["invoice_date", "eq", day]], limit: 1 })).count,
     similarInvoices: async (row, minutes) => {
       const from = new Date(Date.parse(row.odoo_created_at ?? now.toISOString()) - minutes * 60_000).toISOString();
-      return (await store.select("sales_invoices", { columns: "odoo_id", filters: [["salesman_id", "eq", row.salesman_id ?? -1], ["customer_id", "eq", row.customer_id ?? -1], ["amount_total", "eq", row.amount_total], ["kind", "eq", "invoice"], ["odoo_created_at", "gte", from]], limit: 1 })).count;
+      return (await store.select("sales_invoices", { columns: "odoo_id", filters: [["odoo_id", "neq", row.odoo_id], ["salesman_id", "eq", row.salesman_id ?? -1], ["customer_id", "eq", row.customer_id ?? -1], ["amount_total", "eq", row.amount_total], ["kind", "eq", "invoice"], ["odoo_created_at", "gte", from]], limit: 1 })).count;
     },
   };
 }

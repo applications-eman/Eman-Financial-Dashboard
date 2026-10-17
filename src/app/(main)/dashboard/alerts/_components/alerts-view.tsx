@@ -226,8 +226,11 @@ export function AlertsView() {
             <Icon className="size-3.5 shrink-0" aria-hidden="true" />
             <span className="truncate">{ruleLabel(a)}</span>
           </span>
-          <span className="shrink-0 text-muted-foreground text-xs" title={fmtDateTime(a.created_at)}>
-            {fmtDateTime(a.created_at)}
+          <span
+            className="shrink-0 text-muted-foreground text-xs"
+            title={`${t("alerts.issued")} / ${t("alerts.created")}`}
+          >
+            {fmtDateTime(str(a.detail?.issued_at) || a.created_at)}
           </span>
         </div>
         <div className="flex items-baseline justify-between gap-2">
@@ -403,6 +406,10 @@ export function AlertsView() {
                 </div>
               ) : null}
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
+                {fact(
+                  t("alerts.issued"),
+                  str(target.detail?.issued_at) ? fmtDateTime(str(target.detail?.issued_at)) : "",
+                )}
                 {fact(t("alerts.created"), fmtDateTime(target.created_at))}
                 {fact(t("alerts.amount"), target.amount != null ? `${fmtMoney(target.amount)} ${t("common.sar")}` : "")}
                 {fact(t("alerts.invoice"), str(target.detail?.number), true)}

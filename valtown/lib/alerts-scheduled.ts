@@ -17,7 +17,7 @@ function draft(rule: string, cfg: { severity: AlertDraft["severity"] }, r: Row, 
   return {
     rule_key: rule, severity: severity ?? cfg.severity, title, section: r.section ?? "bakery", salesman_name: r.salesman_name ?? null, odoo_id: r.odoo_id ?? null,
     amount: r.amount_total != null ? Number(r.amount_total) : null, fingerprint: fp,
-    detail: { number: r.number, kind: r.kind, salesman: r.salesman_name, customer: r.customer_name, segment: segmentOf(r.customer_vat), amount_total: r.amount_total, zatca_state: r.zatca_state, zatca_error: r.zatca_error, ...extra },
+    detail: { number: r.number, issued_at: r.odoo_created_at, kind: r.kind, salesman: r.salesman_name, customer: r.customer_name, segment: segmentOf(r.customer_vat), amount_total: r.amount_total, zatca_state: r.zatca_state, zatca_error: r.zatca_error, ...extra },
   };
 }
 

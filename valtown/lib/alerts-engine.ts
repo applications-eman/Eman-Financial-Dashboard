@@ -25,7 +25,7 @@ function base(rule: string, cfg: RuleCfg, row: SalesRow, title: string, extra: R
     amount: row.amount_total, fingerprint: fp ?? `${rule}:${row.odoo_id}`,
     detail: {
       number: row.number, kind: row.kind, salesman: row.salesman_name, customer: row.customer_name, segment: segmentOf(row.customer_vat),
-      amount_total: row.amount_total, amount_untaxed: row.amount_untaxed, amount_tax: row.amount_tax, invoice_date: row.invoice_date, ref: row.ref,
+      issued_at: row.odoo_created_at, amount_total: row.amount_total, amount_untaxed: row.amount_untaxed, amount_tax: row.amount_tax, invoice_date: row.invoice_date, ref: row.ref,
       created_by: row.created_by_name, ...extra,
     },
   };
