@@ -2,13 +2,15 @@ import { z } from "npm:zod@4.6.7";
 import { logger } from "./log.ts";
 import type { Row, Store } from "./store.ts";
 import { parseZatcaQr, QrParseError } from "./tlv.ts";
-import { type ExpenseFields, expenseFieldsSchema, type Section, sectionTable, type Source, vatWarnings } from "./validate.ts";
+import { type ExpenseFields, expenseFieldsSchema, SECTIONS, type Section, sectionTable, type Source, vatWarnings } from "./validate.ts";
 
 export interface SaveResult {
   status: "saved" | "duplicate" | "invalid";
   message: string;
   row?: Row;
   existing?: Row;
+  /** section where the original invoice was already recorded (may differ from the one attempted) */
+  existing_section?: Section;
   warnings?: string[];
   errors?: string[];
 }
@@ -33,6 +35,16 @@ export function resolveFields(input: Record<string, unknown>): { ok: true; field
   return { ok: true, fields: r.data };
 }
 
+async function findExisting(store: Store, table: string, f: ExpenseFields): Promise<Row | undefined> {
+  const { rows } = await store.select(table, {
+    filters: [["vat_number", "eq", f.vat_number], ["invoice_date", "eq", f.invoice_date], ["total_amount", "eq", f.total_amount]], limit: 1,
+  });
+  if (rows[0]) return rows[0];
+  // an edited total changes the triple, but the same QR can only ever be recorded once
+  if (f.raw_qr) return (await store.select(table, { filters: [["raw_qr", "eq", f.raw_qr]], limit: 1 })).rows[0];
+  return undefined;
+}
+
 export async function saveExpense(
   store: Store,
   section: Section,
@@ -49,19 +61,22 @@ export async function saveExpense(
     source: ctx.source, submitted_by: ctx.submitted_by, category: f.category || null, notes: f.notes || null,
     image_path: ctx.image_path ?? null,
   };
+  // The same invoice must never be recorded twice, in either section: look in the other section(s) first.
+  for (const other of SECTIONS.filter((x) => x !== section)) {
+    const found = await findExisting(store, sectionTable(other), f);
+    if (found) {
+      await store.update(sectionTable(other), [["id", "eq", found.id]], { duplicate_count: (found.duplicate_count ?? 0) + 1 }, ctx.actor ?? ctx.submitted_by).catch(() => []);
+      return { status: "duplicate", message: `duplicate invoice (already recorded in ${other})`, existing: found, existing_section: other };
+    }
+  }
   const ins = await store.insert(table, row, ctx.actor ?? ctx.submitted_by);
   if (ins.ok) return { status: "saved", message: "saved", row: ins.row, warnings: ins.row.warnings ?? vatWarnings(f.total_amount, f.vat_amount) };
   if (ins.conflict) {
-    let { rows } = await store.select(table, {
-      filters: [["vat_number", "eq", f.vat_number], ["invoice_date", "eq", f.invoice_date], ["total_amount", "eq", f.total_amount]], limit: 1,
-    });
-    // an edited total changes the triple, but the same QR can only ever be recorded once
-    if (!rows[0] && f.raw_qr) rows = (await store.select(table, { filters: [["raw_qr", "eq", f.raw_qr]], limit: 1 })).rows;
-    const existing = rows[0];
+    const existing = await findExisting(store, table, f);
     if (existing) {
       await store.update(table, [["id", "eq", existing.id]], { duplicate_count: (existing.duplicate_count ?? 0) + 1 }, ctx.actor ?? ctx.submitted_by).catch(() => []);
     }
-    return { status: "duplicate", message: "duplicate invoice", existing };
+    return { status: "duplicate", message: "duplicate invoice", existing, existing_section: section };
   }
   logger.error("expense insert failed", { table, error: ins.error });
   return { status: "invalid", message: "could not save the invoice", errors: [ins.error] };

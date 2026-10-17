@@ -31,7 +31,7 @@ export async function captureExpense(
   const res = await saveExpense(store, section, input, { source: opts.source, submitted_by: user.name, image_path: opts.image_path, actor: `${opts.source}:${user.name}` });
   const row = res.row ?? res.existing;
   const vars = {
-    name: user.name, section: sectionLabel(section, lang), seller: row?.seller_name ?? (input.seller_name as string) ?? "",
+    name: user.name, section: sectionLabel(res.status === "duplicate" ? (res.existing_section ?? section) : section, lang), seller: row?.seller_name ?? (input.seller_name as string) ?? "",
     total: row ? money2(Number(row.total_amount)) : "", vat: row ? money2(Number(row.vat_amount)) : "", reason: res.message,
   };
   const reply = await template(store, res.status === "saved" ? "saved" : res.status === "duplicate" ? "duplicate" : "invalid", lang, vars);

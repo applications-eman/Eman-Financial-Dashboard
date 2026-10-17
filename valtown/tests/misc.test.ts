@@ -110,3 +110,23 @@ describe("scheduled reports", () => {
   });
 });
 void MemoryStore;
+
+describe("cross-section duplicates", () => { it("the same invoice cannot be recorded in the other section either", async () => {
+  const store = new MemoryStore();
+  const f = { seller_name: "Mill", vat_number: "312028501300003", invoice_date: "2026-08-11T15:19:20", total_amount: 145.52, vat_amount: 18.98 };
+  const ctx = { source: "whatsapp_text" as const, submitted_by: "Ali" };
+  const a = await saveExpense(store, "bakery", f, ctx);
+  assert.equal(a.status, "saved");
+  const b = await saveExpense(store, "grocery", f, ctx);
+  assert.equal(b.status, "duplicate");
+  assert.equal(b.existing_section, "bakery");
+  assert.equal((store.tables.grocery_expenses ?? []).length, 0);
+  assert.equal(store.tables.bakery_expenses[0].duplicate_count, 1);
+  const c = await saveExpense(store, "bakery", f, ctx);
+  assert.equal(c.status, "duplicate");
+  assert.equal(c.existing_section, "bakery");
+  // a different invoice is still accepted in the other section
+  const d = await saveExpense(store, "grocery", { ...f, total_amount: 10, vat_amount: 1.3 }, ctx);
+  assert.equal(d.status, "saved");
+});
+});

@@ -10,7 +10,7 @@ const FALLBACK_TEMPLATES: Record<string, Record<Lang, string>> = {
   send_invoice_grocery: { en: SEND_GROCERY, ar: SEND_GROCERY },
   welcome: { en: "Welcome {{name}}. Tap the button to record an invoice.", ar: "أهلاً {{name}}. اضغط الزر لتسجيل فاتورة." },
   saved: { en: "Saved ✅\nSection: {{section}}\nSeller: {{seller}}\nTotal: {{total}} SAR\nVAT: {{vat}} SAR", ar: "تم الحفظ ✅\nالقسم: {{section}}\nالمورد: {{seller}}\nالإجمالي: {{total}} ر.س\nالضريبة: {{vat}} ر.س" },
-  duplicate: { en: "Duplicate ⚠️ This invoice was already recorded.", ar: "مكررة ⚠️ هذه الفاتورة مسجلة مسبقاً." },
+  duplicate: { en: "Duplicate ⚠️ This invoice was already recorded ({{section}}).", ar: "مكررة ⚠️ هذه الفاتورة مسجلة مسبقاً ({{section}})." },
   invalid: { en: "Could not read the invoice: {{reason}}", ar: "تعذرت قراءة الفاتورة: {{reason}}" },
   not_allowed: { en: "This number is not registered. Please contact the administrator.", ar: "هذا الرقم غير مسجل. يرجى التواصل مع المسؤول." },
   admin_duplicate: { en: "⚠️ Duplicate attempt by {{name}} in {{section}}: {{seller}} {{total}} SAR", ar: "⚠️ محاولة تكرار من {{name}} في {{section}}: {{seller}} {{total}} ر.س" },
