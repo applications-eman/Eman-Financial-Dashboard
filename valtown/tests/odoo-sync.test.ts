@@ -229,3 +229,20 @@ test("duplicate burst: a single invoice is no alert, a second identical one is, 
   await runSyncCycle(s, fakeOdoo([same(1, "50"), same(2, "52"), mv(3, { partner_id: [500, "Same Cust"], amount_total: 99, create_date: "2026-10-15 08:53:00", write_date: "2026-10-15 08:53:01" })]), base);
   assert.equal((s.tables.alerts ?? []).filter((a) => a.rule_key === "duplicate_burst").length, 1);
 });
+
+test("every credit note alerts, with who issued it, the reason and the original invoice", async () => {
+  const s = mem();
+  const inv = mv(1);
+  const cn = mv(2, { move_type: "out_refund", name: "RINV/2026/9", ref: "Customer returned goods", reversed_entry_id: [1, "INV/2026/1"], create_uid: [3, "EMAN BAKERY"], invoice_user_id: [7, "Salesman A"] });
+  const cn2 = mv(3, { move_type: "out_refund", name: "RINV/2026/10", ref: false, reversed_entry_id: false });
+  await runSyncCycle(s, fakeOdoo([inv, cn, cn2]), base);
+  const a = s.tables.alerts.find((x) => x.rule_key === "credit_any" && x.odoo_id === 2)!;
+  assert.equal(a.detail.issued_by, "EMAN BAKERY");
+  assert.equal(a.detail.reason, "Customer returned goods");
+  assert.equal(a.detail.original_invoice, "INV/2026/1");
+  assert.equal(a.detail.no_reason, false);
+  const b = s.tables.alerts.find((x) => x.rule_key === "credit_any" && x.odoo_id === 3)!;
+  assert.equal(b.detail.original_invoice, null);
+  assert.equal(b.detail.no_reason, true);
+  assert.ok(s.tables.alerts.some((x) => x.rule_key === "refund_unlinked" && x.odoo_id === 3));
+});

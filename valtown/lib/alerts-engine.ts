@@ -27,7 +27,9 @@ function base(rule: string, cfg: RuleCfg, row: SalesRow, title: string, extra: R
     detail: {
       number: row.number, kind: row.kind, salesman: row.salesman_name, customer: row.customer_name, segment: segmentOf(row.customer_vat),
       issued_at: row.odoo_created_at, amount_total: row.amount_total, amount_untaxed: row.amount_untaxed, amount_tax: row.amount_tax, invoice_date: row.invoice_date, ref: row.ref,
-      created_by: row.created_by_name, ...extra,
+      created_by: row.created_by_name, issued_by: row.created_by_name,
+      ...(row.kind === "credit_note" ? { reason: row.ref, no_reason: isAutoReversalText(row.ref), original_invoice: row.reversed_number } : {}),
+      ...extra,
     },
   };
 }

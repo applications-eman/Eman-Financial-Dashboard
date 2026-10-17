@@ -77,6 +77,7 @@ interface InvoiceRef {
   number: string | null;
   issued_at: string | null;
 }
+const isCredit = (a: AlertRow) => a.detail?.kind === "credit_note";
 const invoiceRefs = (a: AlertRow): InvoiceRef[] =>
   Array.isArray(a.detail?.invoices) ? (a.detail.invoices as InvoiceRef[]) : [];
 
@@ -283,10 +284,26 @@ export function AlertsView() {
           {segment ? <Badge variant="outline">{segment}</Badge> : null}
         </div>
         <dl className="grid grid-cols-2 gap-x-3 gap-y-1">
-          {invoiceRefs(a).length ? null : fact(t("alerts.invoice"), str(a.detail?.number), true)}
+          {invoiceRefs(a).length
+            ? null
+            : fact(isCredit(a) ? t("alerts.creditNote") : t("alerts.invoice"), str(a.detail?.number), true)}
           {fact(t("alerts.salesman"), str(a.salesman_name ?? a.detail?.salesman))}
           {fact(t("alerts.customer"), str(a.detail?.customer))}
+          {isCredit(a) ? fact(t("alerts.issuedBy"), str(a.detail?.issued_by ?? a.detail?.created_by)) : null}
+          {isCredit(a)
+            ? fact(t("alerts.originalInvoice"), str(a.detail?.original_invoice) || t("alerts.notLinked"), true)
+            : null}
         </dl>
+        {isCredit(a) ? (
+          <p className="rounded-md bg-muted/60 p-2 text-xs">
+            <span className="text-muted-foreground">{t("alerts.reason")}: </span>
+            {a.detail?.no_reason || !str(a.detail?.reason) ? (
+              <span className="text-amber-600 dark:text-amber-400">{t("alerts.noReason")}</span>
+            ) : (
+              str(a.detail?.reason)
+            )}
+          </p>
+        ) : null}
         {invoiceRefs(a).length ? (
           <ul className="space-y-0.5 rounded-md bg-muted/60 p-2" dir="ltr">
             {invoiceRefs(a).map((i) => (
@@ -492,7 +509,31 @@ export function AlertsView() {
                 )}
                 {fact(t("alerts.created"), fmtDateTime(target.created_at))}
                 {fact(t("alerts.amount"), target.amount != null ? `${fmtMoney(target.amount)} ${t("common.sar")}` : "")}
-                {invoiceRefs(target).length ? null : fact(t("alerts.invoice"), str(target.detail?.number), true)}
+                {invoiceRefs(target).length
+                  ? null
+                  : fact(
+                      isCredit(target) ? t("alerts.creditNote") : t("alerts.invoice"),
+                      str(target.detail?.number),
+                      true,
+                    )}
+                {isCredit(target)
+                  ? fact(t("alerts.issuedBy"), str(target.detail?.issued_by ?? target.detail?.created_by))
+                  : null}
+                {isCredit(target)
+                  ? fact(
+                      t("alerts.originalInvoice"),
+                      str(target.detail?.original_invoice) || t("alerts.notLinked"),
+                      true,
+                    )
+                  : null}
+                {isCredit(target)
+                  ? fact(
+                      t("alerts.reason"),
+                      target.detail?.no_reason || !str(target.detail?.reason)
+                        ? t("alerts.noReason")
+                        : str(target.detail?.reason),
+                    )
+                  : null}
                 {fact(t("alerts.salesman"), str(target.salesman_name ?? target.detail?.salesman))}
                 {fact(t("alerts.customer"), str(target.detail?.customer))}
                 {fact("B2B / B2C", str(target.detail?.segment))}
