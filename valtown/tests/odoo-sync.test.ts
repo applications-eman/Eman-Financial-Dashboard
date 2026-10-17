@@ -209,15 +209,17 @@ test("after the import, later changes are picked up and nothing is lost at the b
   assert.equal(s.tables.sales_invoices.length, 4);
 });
 
-test("duplicate burst counts real invoices only: two identical is no alert, the third is", async () => {
+test("duplicate burst: a single invoice is no alert, a second identical one is, and it lists every invoice", async () => {
   const s = mem();
   const same = (id: number, t: string) => mv(id, { partner_id: [500, "Same Cust"], amount_total: 24.5, amount_untaxed: 21.3, amount_tax: 3.2, create_date: `2026-10-15 08:${t}:00`, write_date: `2026-10-15 08:${t}:01` });
-  await runSyncCycle(s, fakeOdoo([same(1, "50"), same(2, "52")]), base);
+  await runSyncCycle(s, fakeOdoo([same(1, "50")]), base);
   assert.equal((s.tables.alerts ?? []).filter((a) => a.rule_key === "duplicate_burst").length, 0);
-  await runSyncCycle(s, fakeOdoo([same(1, "50"), same(2, "52"), same(3, "54")]), base);
+  await runSyncCycle(s, fakeOdoo([same(1, "50"), same(2, "52")]), base);
   const hits = (s.tables.alerts ?? []).filter((a) => a.rule_key === "duplicate_burst");
   assert.equal(hits.length, 1);
-  assert.equal(hits[0].detail.count, 3);
-  assert.ok(hits[0].detail.issued_at);
-  assert.deepEqual(hits[0].detail.invoices.map((i: any) => i.number), ["INV/2026/1", "INV/2026/2", "INV/2026/3"]);
+  assert.equal(hits[0].detail.count, 2);
+  assert.deepEqual(hits[0].detail.invoices.map((i: any) => i.number), ["INV/2026/1", "INV/2026/2"]);
+  // a different amount is not a repeat
+  await runSyncCycle(s, fakeOdoo([same(1, "50"), same(2, "52"), mv(3, { partner_id: [500, "Same Cust"], amount_total: 99, create_date: "2026-10-15 08:53:00", write_date: "2026-10-15 08:53:01" })]), base);
+  assert.equal((s.tables.alerts ?? []).filter((a) => a.rule_key === "duplicate_burst").length, 1);
 });
