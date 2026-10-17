@@ -29,7 +29,8 @@ export function SearchSelect({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const current = options.find((o) => o.value === value)?.label;
+  // a selected value that is not in the current list (e.g. after changing the period) must still be shown, never "All"
+  const current = options.find((o) => o.value === value)?.label ?? (value || undefined);
   const pick = (v: string) => {
     onChange(v);
     setOpen(false);

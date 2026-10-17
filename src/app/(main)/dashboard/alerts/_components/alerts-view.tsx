@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { cn } from "cn";
-import { AlertTriangle, CheckCircle2, Info, Search, ShieldAlert } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FilterX, Info, Search, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -130,11 +130,19 @@ export function AlertsView() {
   // Realtime: new alerts appear without refreshing
   useEffect(() => {
     const sb = getSupabase();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // many alerts can arrive in one sync: reload once after the burst
     const ch = sb
       .channel("alerts-live")
-      .on("postgres_changes", { event: "*", schema: "public", table: "alerts" }, () => void load())
+      .on("postgres_changes", { event: "*", schema: "public", table: "alerts" }, () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => void load(), 800);
+      })
       .subscribe();
-    return () => void sb.removeChannel(ch);
+    return () => {
+      clearTimeout(timer);
+      void sb.removeChannel(ch);
+    };
   }, [load]);
 
   const ruleLabel = useCallback(
@@ -205,7 +213,26 @@ export function AlertsView() {
         .map((c) => ({ value: c, label: c })),
     [rows],
   );
+  const PAGE = 90;
+  const [visible, setVisible] = useState(PAGE);
   const filtered = severity !== "" || rule !== "" || salesman !== "" || customer !== "" || query !== "";
+
+  // master reset: every filter off, every status, all time - the full list again
+  const dirty = filtered || status !== "all" || period !== "all";
+  function resetAll() {
+    setSeverity("");
+    setRule("");
+    setSalesman("");
+    setCustomer("");
+    setQuery("");
+    setStatus("all");
+    setPeriod("all");
+    setFrom(addDays(today(), -6));
+    setTo(today());
+  }
+  // reset the "show more" window whenever the list changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional trigger list
+  useEffect(() => setVisible(PAGE), [status, period, from, to, severity, rule, salesman, customer, query]);
 
   async function act(next: Status) {
     if (!target) return;
@@ -372,15 +399,15 @@ export function AlertsView() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {pill(status === "open", t("alerts.statusOpen"), () => setStatus("open"))}
-        {pill(status === "done", t("alerts.statusDone"), () => setStatus("done"))}
+        {pill(status === "open", t("alerts.statusOpen"), () => setStatus(status === "open" ? "all" : "open"))}
+        {pill(status === "done", t("alerts.statusDone"), () => setStatus(status === "done" ? "all" : "done"))}
         {pill(status === "all", t("alerts.statusAll"), () => setStatus("all"))}
         <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-        {pill(period === "today", t("alerts.today"), () => setPeriod("today"))}
-        {pill(period === "7", t("alerts.days7"), () => setPeriod("7"))}
-        {pill(period === "30", t("alerts.days30"), () => setPeriod("30"))}
+        {pill(period === "today", t("alerts.today"), () => setPeriod(period === "today" ? "all" : "today"))}
+        {pill(period === "7", t("alerts.days7"), () => setPeriod(period === "7" ? "all" : "7"))}
+        {pill(period === "30", t("alerts.days30"), () => setPeriod(period === "30" ? "all" : "30"))}
         {pill(period === "all", t("alerts.allTime"), () => setPeriod("all"))}
-        {pill(period === "custom", t("alerts.custom"), () => setPeriod("custom"))}
+        {pill(period === "custom", t("alerts.custom"), () => setPeriod(period === "custom" ? "all" : "custom"))}
         {period === "custom" ? (
           <>
             <Input
@@ -438,21 +465,10 @@ export function AlertsView() {
           allLabel={t("alerts.allCustomers")}
           options={customers}
         />
-        {filtered ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setSeverity("");
-              setRule("");
-              setSalesman("");
-              setCustomer("");
-              setQuery("");
-            }}
-          >
-            {t("alerts.clear")}
-          </Button>
-        ) : null}
+        <Button variant={dirty ? "default" : "outline"} size="sm" onClick={resetAll}>
+          <FilterX data-icon="inline-start" />
+          {t("alerts.clear")}
+        </Button>
         <span className="ms-auto text-muted-foreground text-sm">{t("alerts.count", { n: shown.length })}</span>
       </div>
 
@@ -474,18 +490,32 @@ export function AlertsView() {
       ) : shown.length === 0 ? (
         <p className="rounded-lg border bg-card py-12 text-center text-muted-foreground text-sm">{t("alerts.none")}</p>
       ) : (
-        SEVERITIES.map((s) => {
-          const list = shown.filter((a) => a.severity === s);
-          if (!list.length) return null;
-          return (
-            <section key={s} className="space-y-2">
-              <h2 className="font-medium text-sm">
-                {t(sectionTitle[s])} <span className="text-muted-foreground">({list.length})</span>
-              </h2>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{list.map(card)}</div>
-            </section>
-          );
-        })
+        <>
+          {(() => {
+            let quota = visible;
+            return SEVERITIES.map((s) => {
+              const list = shown.filter((a) => a.severity === s);
+              if (!list.length) return null;
+              const part = list.slice(0, Math.max(0, quota));
+              quota -= part.length;
+              return (
+                <section key={s} className="space-y-2">
+                  <h2 className="font-medium text-sm">
+                    {t(sectionTitle[s])} <span className="text-muted-foreground">({list.length})</span>
+                  </h2>
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{part.map(card)}</div>
+                </section>
+              );
+            });
+          })()}
+          {shown.length > visible ? (
+            <div className="flex justify-center">
+              <Button variant="outline" onClick={() => setVisible((v) => v + PAGE)}>
+                {t("alerts.showMore", { n: shown.length - visible })}
+              </Button>
+            </div>
+          ) : null}
+        </>
       )}
 
       <Dialog open={target !== null} onOpenChange={(o) => !o && setTarget(null)}>
