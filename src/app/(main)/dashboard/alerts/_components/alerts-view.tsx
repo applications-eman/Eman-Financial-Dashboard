@@ -72,6 +72,13 @@ const STYLE: Record<Severity, { bar: string; chip: string; tile: string; icon: t
   },
 };
 
+interface InvoiceRef {
+  number: string | null;
+  issued_at: string | null;
+}
+const invoiceRefs = (a: AlertRow): InvoiceRef[] =>
+  Array.isArray(a.detail?.invoices) ? (a.detail.invoices as InvoiceRef[]) : [];
+
 const str = (v: unknown) => (v == null || v === "" ? "" : String(v));
 
 export function AlertsView() {
@@ -241,10 +248,20 @@ export function AlertsView() {
           {segment ? <Badge variant="outline">{segment}</Badge> : null}
         </div>
         <dl className="grid grid-cols-2 gap-x-3 gap-y-1">
-          {fact(t("alerts.invoice"), str(a.detail?.number), true)}
+          {invoiceRefs(a).length ? null : fact(t("alerts.invoice"), str(a.detail?.number), true)}
           {fact(t("alerts.salesman"), str(a.salesman_name ?? a.detail?.salesman))}
           {fact(t("alerts.customer"), str(a.detail?.customer))}
         </dl>
+        {invoiceRefs(a).length ? (
+          <ul className="space-y-0.5 rounded-md bg-muted/60 p-2" dir="ltr">
+            {invoiceRefs(a).map((i) => (
+              <li key={i.number} className="flex items-center justify-between gap-2 font-mono text-xs">
+                <span>{i.number}</span>
+                <span className="text-muted-foreground">{i.issued_at ? fmtDateTime(i.issued_at).slice(11) : ""}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <div className="flex items-center justify-between pt-1">
           <Badge variant={a.status === "open" ? "default" : "secondary"}>
             {a.status !== "open" ? <CheckCircle2 aria-hidden="true" /> : null}
@@ -412,13 +429,26 @@ export function AlertsView() {
                 )}
                 {fact(t("alerts.created"), fmtDateTime(target.created_at))}
                 {fact(t("alerts.amount"), target.amount != null ? `${fmtMoney(target.amount)} ${t("common.sar")}` : "")}
-                {fact(t("alerts.invoice"), str(target.detail?.number), true)}
+                {invoiceRefs(target).length ? null : fact(t("alerts.invoice"), str(target.detail?.number), true)}
                 {fact(t("alerts.salesman"), str(target.salesman_name ?? target.detail?.salesman))}
                 {fact(t("alerts.customer"), str(target.detail?.customer))}
                 {fact("B2B / B2C", str(target.detail?.segment))}
                 {fact(t("alerts.created_by"), str(target.detail?.created_by))}
                 {fact("Odoo ref", str(target.detail?.ref), true)}
               </dl>
+              {invoiceRefs(target).length ? (
+                <div>
+                  <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{t("alerts.invoices")}</p>
+                  <ul className="mt-1 space-y-1 rounded-md bg-muted/60 p-2" dir="ltr">
+                    {invoiceRefs(target).map((i) => (
+                      <li key={i.number} className="flex justify-between gap-2 font-mono text-xs">
+                        <span>{i.number}</span>
+                        <span className="text-muted-foreground">{i.issued_at ? fmtDateTime(i.issued_at) : ""}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               {target.status !== "open" ? (
                 <p className="text-sm">
                   <span className="text-muted-foreground">

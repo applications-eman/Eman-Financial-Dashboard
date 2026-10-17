@@ -11,7 +11,8 @@ export interface EventCtx {
   avgBySalesman: Map<number, number>;
   originalInvoiceDate(odooId: number): Promise<string | null>;
   creditNotesOnDay(salesmanId: number, day: string): Promise<number>;
-  similarInvoices(row: SalesRow, windowMinutes: number): Promise<number>;
+  /** the OTHER identical invoices (same salesman, customer and amount) created shortly before this one */
+  similarInvoices(row: SalesRow, windowMinutes: number): Promise<{ number: string | null; odoo_created_at: string | null }[]>;
 }
 export interface InvoiceEvent { row: SalesRow; prev: SalesRow | null }
 
@@ -114,9 +115,13 @@ export async function evaluateInvoiceEvent(ev: InvoiceEvent, ctx: EventCtx): Pro
       }
     }
     if (on("duplicate_burst")) {
-      const n = (await ctx.similarInvoices(row, Number(R.duplicate_burst.window_minutes))) + 1;
+      const others = await ctx.similarInvoices(row, Number(R.duplicate_burst.window_minutes));
+      const n = others.length + 1;
       if (n >= Number(R.duplicate_burst.min_count)) {
-        out.push(base("duplicate_burst", R.duplicate_burst, row, `${who}: ${n} identical invoices (same customer, SAR ${money(row.amount_total)}) within ${R.duplicate_burst.window_minutes} min`, { count: n }, `duplicate_burst:${row.salesman_id}:${row.customer_id}:${row.amount_total}:${(row.odoo_created_at ?? "").slice(0, 13)}`));
+        const invoices = [...others, { number: row.number, odoo_created_at: row.odoo_created_at }]
+          .sort((a, b) => String(a.odoo_created_at).localeCompare(String(b.odoo_created_at)))
+          .map((i) => ({ number: i.number, issued_at: i.odoo_created_at }));
+        out.push(base("duplicate_burst", R.duplicate_burst, row, `${who}: ${n} identical invoices (same customer, SAR ${money(row.amount_total)}) within ${R.duplicate_burst.window_minutes} min`, { count: n, invoices }, `duplicate_burst:${row.salesman_id}:${row.customer_id}:${row.amount_total}:${(row.odoo_created_at ?? "").slice(0, 13)}`));
       }
     }
   }

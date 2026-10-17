@@ -219,4 +219,5 @@ test("duplicate burst counts real invoices only: two identical is no alert, the 
   assert.equal(hits.length, 1);
   assert.equal(hits[0].detail.count, 3);
   assert.ok(hits[0].detail.issued_at);
+  assert.deepEqual(hits[0].detail.invoices.map((i: any) => i.number), ["INV/2026/1", "INV/2026/2", "INV/2026/3"]);
 });
