@@ -50,7 +50,9 @@ interface AlertRow {
   created_at: string;
 }
 
-const LIMIT = 1000;
+const PAGE_SIZE = 1000; // the database returns at most 1000 rows per request, so we read page after page
+const MAX_PAGES = 12;
+const LIMIT = PAGE_SIZE * MAX_PAGES;
 const SEVERITIES: Severity[] = ["critical", "warning", "info"];
 const STYLE: Record<Severity, { bar: string; chip: string; tile: string; icon: typeof Info }> = {
   critical: {
@@ -101,9 +103,6 @@ export function AlertsView() {
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    let q = getSupabase().from("alerts").select("*").order("created_at", { ascending: false }).limit(LIMIT);
-    if (status === "open") q = q.eq("status", "open");
-    if (status === "done") q = q.in("status", ["acknowledged", "resolved"]);
     // an alert is always raised after its invoice, so this safely loads a superset; the exact day filter is applied on the invoice time below
     const lo =
       period === "all"
@@ -113,13 +112,27 @@ export function AlertsView() {
           : period === "today"
             ? today()
             : addDays(today(), -Number(period) + 1);
-    if (lo) q = q.gte("created_at", riyadhStartOfDay(lo));
-    const { data, error: e } = await q;
-    if (e) setError(e.message);
-    else {
-      setError(null);
-      setRows(data as AlertRow[]);
+    const all: AlertRow[] = [];
+    for (let page = 0; page < MAX_PAGES; page++) {
+      let q = getSupabase()
+        .from("alerts")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+      if (status === "open") q = q.eq("status", "open");
+      if (status === "done") q = q.in("status", ["acknowledged", "resolved"]);
+      if (lo) q = q.gte("created_at", riyadhStartOfDay(lo));
+      const { data, error: e } = await q;
+      if (e) {
+        setError(e.message);
+        return;
+      }
+      all.push(...(data as AlertRow[]));
+      if ((data?.length ?? 0) < PAGE_SIZE) break;
     }
+    setError(null);
+    setRows(all);
   }, [status, period, from]);
 
   useEffect(() => {
