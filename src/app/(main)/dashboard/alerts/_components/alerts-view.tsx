@@ -22,12 +22,13 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { adminSend } from "@/lib/admin-api";
-import { addDays, fmtDateTime, fmtMoney, riyadhStartOfDay } from "@/lib/format";
+import { addDays, fmtDateTime, fmtMoney, riyadhDay, riyadhStartOfDay } from "@/lib/format";
 import type { MessageKey } from "@/lib/i18n/messages";
 import { useT } from "@/lib/i18n/provider";
 import { today } from "@/lib/revenue";
 import { getSupabase } from "@/lib/supabase/client";
 
+import { SearchSelect } from "../../_components/common/search-select";
 import { SimpleSelect } from "../../_components/common/simple-select";
 
 type Severity = "critical" | "warning" | "info";
@@ -86,7 +87,10 @@ export function AlertsView() {
   const [rows, setRows] = useState<AlertRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<"open" | "done" | "all">("open");
-  const [period, setPeriod] = useState<"today" | "7" | "30" | "all">("30");
+  const [period, setPeriod] = useState<"today" | "7" | "30" | "all" | "custom">("7");
+  const [from, setFrom] = useState(addDays(today(), -6));
+  const [to, setTo] = useState(today());
+  const [customer, setCustomer] = useState("");
   const [severity, setSeverity] = useState<Severity | "">("");
   const [rule, setRule] = useState("");
   const [salesman, setSalesman] = useState("");
@@ -99,15 +103,23 @@ export function AlertsView() {
     let q = getSupabase().from("alerts").select("*").order("created_at", { ascending: false }).limit(LIMIT);
     if (status === "open") q = q.eq("status", "open");
     if (status === "done") q = q.in("status", ["acknowledged", "resolved"]);
-    if (period !== "all")
-      q = q.gte("created_at", riyadhStartOfDay(period === "today" ? today() : addDays(today(), -Number(period) + 1)));
+    // an alert is always raised after its invoice, so this safely loads a superset; the exact day filter is applied on the invoice time below
+    const lo =
+      period === "all"
+        ? null
+        : period === "custom"
+          ? from
+          : period === "today"
+            ? today()
+            : addDays(today(), -Number(period) + 1);
+    if (lo) q = q.gte("created_at", riyadhStartOfDay(lo));
     const { data, error: e } = await q;
     if (e) setError(e.message);
     else {
       setError(null);
       setRows(data as AlertRow[]);
     }
-  }, [status, period]);
+  }, [status, period, from]);
 
   useEffect(() => {
     setRows(null);
@@ -139,17 +151,33 @@ export function AlertsView() {
   // everything except the severity filter, so the three tiles always show what each choice would give
   const base = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return (rows ?? []).filter((a) => {
-      if (rule && a.rule_key !== rule) return false;
-      if (salesman && a.salesman_name !== salesman) return false;
-      if (!needle) return true;
-      const hay = [a.detail?.number, a.detail?.customer, a.salesman_name, a.title, a.detail?.ref]
-        .map(str)
-        .join(" ")
-        .toLowerCase();
-      return hay.includes(needle);
-    });
-  }, [rows, rule, salesman, query]);
+    const lo =
+      period === "all"
+        ? ""
+        : period === "custom"
+          ? from
+          : period === "today"
+            ? today()
+            : addDays(today(), -Number(period) + 1);
+    const hi = period === "custom" ? to : period === "all" ? "" : today();
+    const when = (a: AlertRow) => str(a.detail?.issued_at) || a.created_at;
+    return (rows ?? [])
+      .filter((a) => {
+        const day = riyadhDay(when(a));
+        if (lo && day < lo) return false;
+        if (hi && day > hi) return false;
+        if (rule && a.rule_key !== rule) return false;
+        if (salesman && a.salesman_name !== salesman) return false;
+        if (customer && str(a.detail?.customer) !== customer) return false;
+        if (!needle) return true;
+        const hay = [a.detail?.number, a.detail?.customer, a.salesman_name, a.title, a.detail?.ref]
+          .map(str)
+          .join(" ")
+          .toLowerCase();
+        return hay.includes(needle);
+      })
+      .sort((a, b) => Date.parse(when(b)) - Date.parse(when(a)));
+  }, [rows, rule, salesman, customer, query, period, from, to]);
   const counts = useMemo(() => {
     const c: Record<Severity, number> = { critical: 0, warning: 0, info: 0 };
     for (const a of base) c[a.severity]++;
@@ -169,7 +197,14 @@ export function AlertsView() {
         .map((s) => ({ value: s, label: s })),
     [rows],
   );
-  const filtered = severity !== "" || rule !== "" || salesman !== "" || query !== "";
+  const customers = useMemo(
+    () =>
+      [...new Set((rows ?? []).map((a) => str(a.detail?.customer)).filter(Boolean))]
+        .sort()
+        .map((c) => ({ value: c, label: c })),
+    [rows],
+  );
+  const filtered = severity !== "" || rule !== "" || salesman !== "" || customer !== "" || query !== "";
 
   async function act(next: Status) {
     if (!target) return;
@@ -328,6 +363,27 @@ export function AlertsView() {
         {pill(period === "7", t("alerts.days7"), () => setPeriod("7"))}
         {pill(period === "30", t("alerts.days30"), () => setPeriod("30"))}
         {pill(period === "all", t("alerts.allTime"), () => setPeriod("all"))}
+        {pill(period === "custom", t("alerts.custom"), () => setPeriod("custom"))}
+        {period === "custom" ? (
+          <>
+            <Input
+              type="date"
+              aria-label={t("exports.from")}
+              className="w-40"
+              value={from}
+              max={to}
+              onChange={(e) => setFrom(e.target.value)}
+            />
+            <Input
+              type="date"
+              aria-label={t("exports.to")}
+              className="w-40"
+              value={to}
+              min={from}
+              onChange={(e) => setTo(e.target.value)}
+            />
+          </>
+        ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-60 flex-1 sm:max-w-sm">
@@ -351,13 +407,19 @@ export function AlertsView() {
           allLabel={t("alerts.allRules")}
           options={rules}
         />
-        <SimpleSelect
-          size="default"
+        <SearchSelect
           label={t("alerts.salesman")}
           value={salesman}
           onChange={setSalesman}
           allLabel={t("alerts.allSalesmen")}
           options={salesmen}
+        />
+        <SearchSelect
+          label={t("alerts.customer")}
+          value={customer}
+          onChange={setCustomer}
+          allLabel={t("alerts.allCustomers")}
+          options={customers}
         />
         {filtered ? (
           <Button
@@ -367,6 +429,7 @@ export function AlertsView() {
               setSeverity("");
               setRule("");
               setSalesman("");
+              setCustomer("");
               setQuery("");
             }}
           >
