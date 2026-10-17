@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Download } from "lucide-react";
 import { toast } from "sonner";
@@ -77,21 +77,24 @@ export function RevenueView() {
   const [rows, setRows] = useState<SummaryRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // only the newest request may change the screen (an older, slower one must never overwrite it or leave an old error behind)
+  const seq = useRef(0);
   const load = useCallback(async () => {
     const sb = getSupabase();
+    const mine = ++seq.current;
     setError(null);
     try {
       let out: SummaryRow[] = [];
       if (scope !== "grocery") {
-        const { data, error: e } = await sb.rpc("revenue_summary", {
-          p_from: from,
-          p_to: to,
-          p_group: group,
-          p_segment: segment || null,
-          p_section: "bakery",
-        });
-        if (e) throw new Error(e.message);
-        out = (data as Record<string, unknown>[]).map(toSummary);
+        const args = { p_from: from, p_to: to, p_group: group, p_segment: segment || null, p_section: "bakery" };
+        let res = await sb.rpc("revenue_summary", args);
+        // a big period can occasionally hit the database time limit while it is busy: try once more
+        if (res.error && /timeout/i.test(res.error.message)) {
+          await new Promise((r) => setTimeout(r, 1200));
+          res = await sb.rpc("revenue_summary", args);
+        }
+        if (res.error) throw new Error(res.error.message);
+        out = (res.data as Record<string, unknown>[]).map(toSummary);
       }
       const groceryGroups: Group[] = ["day", "month", "segment"];
       if (scope !== "bakery" && groceryGroups.includes(group) && segment !== "B2B") {
@@ -103,8 +106,11 @@ export function RevenueView() {
         if (e) throw new Error(e.message);
         out = mergeRows(out, groceryToRows(data as GroceryDay[], group));
       }
+      if (mine !== seq.current) return;
+      setError(null);
       setRows(out);
     } catch (e) {
+      if (mine !== seq.current) return;
       setError(e instanceof Error ? e.message : t("common.loadError"));
       setRows([]);
     }

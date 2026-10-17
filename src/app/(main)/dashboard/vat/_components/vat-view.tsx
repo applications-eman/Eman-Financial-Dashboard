@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -112,13 +112,21 @@ export function VatView() {
 
   const [year, quarter] = sel.split("-").map(Number);
 
+  const seq = useRef(0);
   const load = useCallback(async () => {
     const sb = getSupabase();
+    const mine = ++seq.current;
     setError(null);
-    const one = await sb.rpc("vat_return", { p_year: year, p_quarter: quarter });
+    let one = await sb.rpc("vat_return", { p_year: year, p_quarter: quarter });
+    if (one.error && /timeout/i.test(one.error.message)) {
+      await new Promise((r) => setTimeout(r, 1200));
+      one = await sb.rpc("vat_return", { p_year: year, p_quarter: quarter });
+    }
+    if (mine !== seq.current) return;
     if (one.error) setError(one.error.message);
     else setData(one.data as VatReturn);
     const all = await Promise.all(quarters.map((q) => sb.rpc("vat_return", { p_year: q.year, p_quarter: q.quarter })));
+    if (mine !== seq.current) return;
     setPast(all.filter((r) => !r.error).map((r) => r.data as VatReturn));
     const pay = await sb
       .from("vat_payments")
