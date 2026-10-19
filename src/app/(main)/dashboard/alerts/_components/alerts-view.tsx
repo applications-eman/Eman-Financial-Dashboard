@@ -3,11 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { cn } from "cn";
-import { AlertTriangle, CheckCircle2, FilterX, Info, Search, ShieldAlert } from "lucide-react";
+import { FilterX, Search } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -19,7 +18,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { adminSend } from "@/lib/admin-api";
 import { addDays, fmtDateTime, fmtMoney, riyadhDay, riyadhStartOfDay } from "@/lib/format";
@@ -30,60 +28,23 @@ import { getSupabase } from "@/lib/supabase/client";
 
 import { SearchSelect } from "../../_components/common/search-select";
 import { SimpleSelect } from "../../_components/common/simple-select";
+import { AlertsReport } from "./alerts-report";
+import {
+  type AlertRow,
+  fact,
+  invoiceRefs,
+  isCredit,
+  SEVERITIES,
+  type Severity,
+  STYLE,
+  type Status,
+  str,
+  totalsOf,
+} from "./alerts-shared";
 
-type Severity = "critical" | "warning" | "info";
-type Status = "open" | "acknowledged" | "resolved";
-
-interface AlertRow {
-  id: number;
-  rule_key: string;
-  severity: Severity;
-  title: string;
-  detail: Record<string, unknown>;
-  section: string;
-  salesman_name: string | null;
-  amount: number | null;
-  status: Status;
-  note: string | null;
-  handled_by: string | null;
-  handled_at: string | null;
-  created_at: string;
-}
-
-const PAGE_SIZE = 1000; // the database returns at most 1000 rows per request, so we read page after page
+const FETCH_PAGE = 1000; // the database returns at most 1000 rows per request, so we read page after page
 const MAX_PAGES = 12;
-const LIMIT = PAGE_SIZE * MAX_PAGES;
-const SEVERITIES: Severity[] = ["critical", "warning", "info"];
-const STYLE: Record<Severity, { bar: string; chip: string; tile: string; icon: typeof Info }> = {
-  critical: {
-    bar: "border-s-destructive",
-    chip: "bg-destructive/10 text-destructive",
-    tile: "border-destructive/50 data-[active=true]:bg-destructive/10",
-    icon: ShieldAlert,
-  },
-  warning: {
-    bar: "border-s-amber-500",
-    chip: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
-    tile: "border-amber-500/50 data-[active=true]:bg-amber-500/10",
-    icon: AlertTriangle,
-  },
-  info: {
-    bar: "border-s-sky-500",
-    chip: "bg-sky-500/10 text-sky-600 dark:text-sky-400",
-    tile: "border-sky-500/50 data-[active=true]:bg-sky-500/10",
-    icon: Info,
-  },
-};
-
-interface InvoiceRef {
-  number: string | null;
-  issued_at: string | null;
-}
-const isCredit = (a: AlertRow) => a.detail?.kind === "credit_note";
-const invoiceRefs = (a: AlertRow): InvoiceRef[] =>
-  Array.isArray(a.detail?.invoices) ? (a.detail.invoices as InvoiceRef[]) : [];
-
-const str = (v: unknown) => (v == null || v === "" ? "" : String(v));
+const LIMIT = FETCH_PAGE * MAX_PAGES;
 
 export function AlertsView() {
   const t = useT();
@@ -119,7 +80,7 @@ export function AlertsView() {
         .select("*")
         .order("created_at", { ascending: false })
         .order("id", { ascending: false })
-        .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+        .range(page * FETCH_PAGE, page * FETCH_PAGE + FETCH_PAGE - 1);
       if (status === "open") q = q.eq("status", "open");
       if (status === "done") q = q.in("status", ["acknowledged", "resolved"]);
       if (lo) q = q.gte("created_at", riyadhStartOfDay(lo));
@@ -129,7 +90,7 @@ export function AlertsView() {
         return;
       }
       all.push(...(data as AlertRow[]));
-      if ((data?.length ?? 0) < PAGE_SIZE) break;
+      if ((data?.length ?? 0) < FETCH_PAGE) break;
     }
     setError(null);
     setRows(all);
@@ -226,8 +187,7 @@ export function AlertsView() {
         .map((c) => ({ value: c, label: c })),
     [rows],
   );
-  const PAGE = 90;
-  const [visible, setVisible] = useState(PAGE);
+  const [page, setPage] = useState(1);
   const filtered = severity !== "" || rule !== "" || salesman !== "" || customer !== "" || query !== "";
 
   // master reset: every filter off, every status, all time - the full list again
@@ -243,9 +203,10 @@ export function AlertsView() {
     setFrom(addDays(today(), -6));
     setTo(today());
   }
-  // reset the "show more" window whenever the list changes
+  // back to page 1 whenever the list changes
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional trigger list
-  useEffect(() => setVisible(PAGE), [status, period, from, to, severity, rule, salesman, customer, query]);
+  useEffect(() => setPage(1), [status, period, from, to, severity, rule, salesman, customer, query]);
+  const totals = useMemo(() => totalsOf(shown), [shown]);
 
   async function act(next: Status) {
     if (!target) return;
@@ -267,269 +228,179 @@ export function AlertsView() {
     }
   }
 
-  const fact = (label: string, value: string, mono = false) =>
-    value ? (
-      <div className="min-w-0">
-        <dt className="text-[11px] text-muted-foreground uppercase tracking-wide">{label}</dt>
-        <dd
-          className={cn("truncate text-sm", mono && "font-mono text-xs")}
-          dir={mono ? "ltr" : undefined}
-          title={value}
-        >
-          {value}
-        </dd>
-      </div>
-    ) : null;
-
-  function card(a: AlertRow) {
-    const S = STYLE[a.severity];
-    const Icon = S.icon;
-    const segment = str(a.detail?.segment);
-    return (
-      <button
-        key={a.id}
-        type="button"
-        onClick={() => {
-          setTarget(a);
-          setNote(a.note ?? "");
-        }}
-        className={cn(
-          "flex min-w-0 flex-col gap-2 rounded-lg border border-s-4 bg-card p-3 text-start shadow-xs transition hover:shadow-md focus-visible:outline-2 focus-visible:outline-ring",
-          S.bar,
-          a.status !== "open" && "opacity-70",
-        )}
-      >
-        <div className="flex items-start justify-between gap-2">
-          <span
-            className={cn(
-              "inline-flex min-w-0 items-center gap-1.5 rounded-md px-2 py-0.5 font-medium text-xs",
-              S.chip,
-            )}
-          >
-            <Icon className="size-3.5 shrink-0" aria-hidden="true" />
-            <span className="truncate">{ruleLabel(a)}</span>
-          </span>
-          <span
-            className="shrink-0 text-muted-foreground text-xs"
-            title={`${t("alerts.issued")} / ${t("alerts.created")}`}
-          >
-            {fmtDateTime(str(a.detail?.issued_at) || a.created_at)}
-          </span>
-        </div>
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="font-semibold text-lg tabular-nums">
-            {a.amount != null ? fmtMoney(a.amount) : "—"}{" "}
-            <span className="font-normal text-muted-foreground text-xs">{t("common.sar")}</span>
-          </span>
-          {segment ? <Badge variant="outline">{segment}</Badge> : null}
-        </div>
-        <dl className="grid grid-cols-2 gap-x-3 gap-y-1">
-          {invoiceRefs(a).length
-            ? null
-            : fact(isCredit(a) ? t("alerts.creditNote") : t("alerts.invoice"), str(a.detail?.number), true)}
-          {fact(t("alerts.salesman"), str(a.salesman_name ?? a.detail?.salesman))}
-          {fact(t("alerts.customer"), str(a.detail?.customer))}
-          {isCredit(a) ? fact(t("alerts.issuedBy"), str(a.detail?.issued_by ?? a.detail?.created_by)) : null}
-          {isCredit(a)
-            ? fact(t("alerts.originalInvoice"), str(a.detail?.original_invoice) || t("alerts.notLinked"), true)
-            : null}
-        </dl>
-        {isCredit(a) ? (
-          <p className="rounded-md bg-muted/60 p-2 text-xs">
-            <span className="text-muted-foreground">{t("alerts.reason")}: </span>
-            {a.detail?.no_reason || !str(a.detail?.reason) ? (
-              <span className="text-amber-600 dark:text-amber-400">{t("alerts.noReason")}</span>
-            ) : (
-              str(a.detail?.reason)
-            )}
-          </p>
-        ) : null}
-        {invoiceRefs(a).length ? (
-          <ul className="space-y-0.5 rounded-md bg-muted/60 p-2" dir="ltr">
-            {invoiceRefs(a).map((i) => (
-              <li key={i.number} className="flex items-center justify-between gap-2 font-mono text-xs">
-                <span>{i.number}</span>
-                <span className="text-muted-foreground">{i.issued_at ? fmtDateTime(i.issued_at).slice(11) : ""}</span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        <div className="flex items-center justify-between pt-1">
-          <Badge variant={a.status === "open" ? "default" : "secondary"}>
-            {a.status !== "open" ? <CheckCircle2 aria-hidden="true" /> : null}
-            {t(`alerts.status.${a.status}`)}
-          </Badge>
-          <span className="text-muted-foreground text-xs">{t("alerts.cardHint")}</span>
-        </div>
-      </button>
-    );
-  }
-
-  const sectionTitle: Record<Severity, MessageKey> = {
-    critical: "alerts.sectionCritical",
-    warning: "alerts.sectionWarning",
-    info: "alerts.sectionInfo",
-  };
   const pill = (active: boolean, label: string, onClick: () => void) => (
     <Button size="sm" variant={active ? "default" : "outline"} aria-pressed={active} onClick={onClick}>
       {label}
     </Button>
   );
 
+  const open = useCallback((a: AlertRow) => {
+    setTarget(a);
+    setNote(a.note ?? "");
+  }, []);
+
   return (
-    <div className="flex flex-col gap-4">
-      <div className="space-y-1">
-        <h1 className="text-3xl tracking-tight">{t("alerts.title")}</h1>
-        <p className="text-muted-foreground text-sm">{t("alerts.subtitle")}</p>
-      </div>
+    <div className="flex h-[calc(100svh-7.5rem)] min-h-96 flex-col gap-3">
+      {/* fixed top: title, counters, filters and the totals of the filtered report */}
+      <div className="max-h-[55%] shrink-0 space-y-3 overflow-y-auto pe-1">
+        <div className="space-y-1">
+          <h1 className="text-3xl tracking-tight">{t("alerts.title")}</h1>
+          <p className="text-muted-foreground text-sm">{t("alerts.subtitle")}</p>
+        </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        {SEVERITIES.map((s) => {
-          const S = STYLE[s];
-          const Icon = S.icon;
-          return (
-            <button
-              key={s}
-              type="button"
-              data-active={severity === s}
-              aria-pressed={severity === s}
-              onClick={() => setSeverity(severity === s ? "" : s)}
-              className={cn(
-                "flex items-center gap-3 rounded-lg border bg-card p-3 text-start transition hover:shadow-md",
-                S.tile,
-              )}
-            >
-              <span className={cn("rounded-md p-2", S.chip)}>
-                <Icon className="size-5" aria-hidden="true" />
-              </span>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {SEVERITIES.map((s) => {
+            const S = STYLE[s];
+            const Icon = S.icon;
+            return (
+              <button
+                key={s}
+                type="button"
+                data-active={severity === s}
+                aria-pressed={severity === s}
+                onClick={() => setSeverity(severity === s ? "" : s)}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg border bg-card p-3 text-start transition hover:shadow-md",
+                  S.tile,
+                )}
+              >
+                <span className={cn("rounded-md p-2", S.chip)}>
+                  <Icon className="size-5" aria-hidden="true" />
+                </span>
+                <span>
+                  <span className="block font-semibold text-2xl tabular-nums leading-none">
+                    {rows ? counts[s] : "…"}
+                  </span>
+                  <span className="text-muted-foreground text-sm">{t(`alerts.severity.${s}`)}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {pill(status === "open", t("alerts.statusOpen"), () => setStatus(status === "open" ? "all" : "open"))}
+          {pill(status === "done", t("alerts.statusDone"), () => setStatus(status === "done" ? "all" : "done"))}
+          {pill(status === "all", t("alerts.statusAll"), () => setStatus("all"))}
+          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
+          {pill(period === "today", t("alerts.today"), () => setPeriod(period === "today" ? "all" : "today"))}
+          {pill(period === "7", t("alerts.days7"), () => setPeriod(period === "7" ? "all" : "7"))}
+          {pill(period === "30", t("alerts.days30"), () => setPeriod(period === "30" ? "all" : "30"))}
+          {pill(period === "all", t("alerts.allTime"), () => setPeriod("all"))}
+          {pill(period === "custom", t("alerts.custom"), () => setPeriod(period === "custom" ? "all" : "custom"))}
+          {period === "custom" ? (
+            <>
+              <Input
+                type="date"
+                aria-label={t("exports.from")}
+                className="w-40"
+                value={from}
+                max={to}
+                onChange={(e) => setFrom(e.target.value)}
+              />
+              <Input
+                type="date"
+                aria-label={t("exports.to")}
+                className="w-40"
+                value={to}
+                min={from}
+                onChange={(e) => setTo(e.target.value)}
+              />
+            </>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-60 flex-1 sm:max-w-sm">
+            <Search
+              className="pointer-events-none absolute start-2.5 top-2.5 size-4 text-muted-foreground"
+              aria-hidden="true"
+            />
+            <Input
+              aria-label={t("alerts.search")}
+              placeholder={t("alerts.search")}
+              className="ps-8"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <SimpleSelect
+            size="default"
+            label={t("alerts.type")}
+            value={rule}
+            onChange={setRule}
+            allLabel={t("alerts.allRules")}
+            options={rules}
+          />
+          <SearchSelect
+            label={t("alerts.salesman")}
+            value={salesman}
+            onChange={setSalesman}
+            allLabel={t("alerts.allSalesmen")}
+            options={salesmen}
+          />
+          <SearchSelect
+            label={t("alerts.customer")}
+            value={customer}
+            onChange={setCustomer}
+            allLabel={t("alerts.allCustomers")}
+            options={customers}
+          />
+          <Button variant={dirty ? "default" : "outline"} size="sm" onClick={resetAll}>
+            <FilterX data-icon="inline-start" />
+            {t("alerts.clear")}
+          </Button>
+          <span className="ms-auto text-muted-foreground text-sm">{t("alerts.count", { n: shown.length })}</span>
+        </div>
+
+        {/* totals of exactly what the filters above are showing (each invoice / credit note counted once) */}
+        {rows ? (
+          <div
+            className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-lg border bg-card px-3 py-2 text-sm"
+            title={t("alerts.totalsHelp")}
+          >
+            <span className="font-medium">{t("alerts.totals")}</span>
+            <span>
+              {t("alerts.totalInvoices", { n: totals.invoiceCount })}:{" "}
+              <b className="tabular-nums">
+                {fmtMoney(totals.invoiceTotal)} {t("common.sar")}
+              </b>
+            </span>
+            <span>
+              {t("alerts.totalCredits", { n: totals.creditCount })}:{" "}
+              <b className="tabular-nums">
+                {fmtMoney(totals.creditTotal)} {t("common.sar")}
+              </b>
+            </span>
+            {totals.repeatedExtra > 0 ? (
               <span>
-                <span className="block font-semibold text-2xl tabular-nums leading-none">{rows ? counts[s] : "…"}</span>
-                <span className="text-muted-foreground text-sm">{t(`alerts.severity.${s}`)}</span>
+                {t("alerts.totalExtra")}:{" "}
+                <b className="tabular-nums">
+                  {fmtMoney(totals.repeatedExtra)} {t("common.sar")}
+                </b>
               </span>
-            </button>
-          );
-        })}
-      </div>
+            ) : null}
+          </div>
+        ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
-        {pill(status === "open", t("alerts.statusOpen"), () => setStatus(status === "open" ? "all" : "open"))}
-        {pill(status === "done", t("alerts.statusDone"), () => setStatus(status === "done" ? "all" : "done"))}
-        {pill(status === "all", t("alerts.statusAll"), () => setStatus("all"))}
-        <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
-        {pill(period === "today", t("alerts.today"), () => setPeriod(period === "today" ? "all" : "today"))}
-        {pill(period === "7", t("alerts.days7"), () => setPeriod(period === "7" ? "all" : "7"))}
-        {pill(period === "30", t("alerts.days30"), () => setPeriod(period === "30" ? "all" : "30"))}
-        {pill(period === "all", t("alerts.allTime"), () => setPeriod("all"))}
-        {pill(period === "custom", t("alerts.custom"), () => setPeriod(period === "custom" ? "all" : "custom"))}
-        {period === "custom" ? (
-          <>
-            <Input
-              type="date"
-              aria-label={t("exports.from")}
-              className="w-40"
-              value={from}
-              max={to}
-              onChange={(e) => setFrom(e.target.value)}
-            />
-            <Input
-              type="date"
-              aria-label={t("exports.to")}
-              className="w-40"
-              value={to}
-              min={from}
-              onChange={(e) => setTo(e.target.value)}
-            />
-          </>
+        {error ? (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
+        {rows && rows.length >= LIMIT ? (
+          <p className="text-muted-foreground text-xs">{t("alerts.limit", { n: LIMIT })}</p>
         ) : null}
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-60 flex-1 sm:max-w-sm">
-          <Search
-            className="pointer-events-none absolute start-2.5 top-2.5 size-4 text-muted-foreground"
-            aria-hidden="true"
-          />
-          <Input
-            aria-label={t("alerts.search")}
-            placeholder={t("alerts.search")}
-            className="ps-8"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </div>
-        <SimpleSelect
-          size="default"
-          label={t("alerts.type")}
-          value={rule}
-          onChange={setRule}
-          allLabel={t("alerts.allRules")}
-          options={rules}
-        />
-        <SearchSelect
-          label={t("alerts.salesman")}
-          value={salesman}
-          onChange={setSalesman}
-          allLabel={t("alerts.allSalesmen")}
-          options={salesmen}
-        />
-        <SearchSelect
-          label={t("alerts.customer")}
-          value={customer}
-          onChange={setCustomer}
-          allLabel={t("alerts.allCustomers")}
-          options={customers}
-        />
-        <Button variant={dirty ? "default" : "outline"} size="sm" onClick={resetAll}>
-          <FilterX data-icon="inline-start" />
-          {t("alerts.clear")}
-        </Button>
-        <span className="ms-auto text-muted-foreground text-sm">{t("alerts.count", { n: shown.length })}</span>
-      </div>
 
-      {error ? (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      ) : null}
-      {rows && rows.length >= LIMIT ? (
-        <p className="text-muted-foreground text-xs">{t("alerts.limit", { n: LIMIT })}</p>
-      ) : null}
-
-      {rows === null ? (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {[0, 1, 2].map((i) => (
-            <Skeleton key={i} className="h-40 w-full" />
-          ))}
-        </div>
-      ) : shown.length === 0 ? (
-        <p className="rounded-lg border bg-card py-12 text-center text-muted-foreground text-sm">{t("alerts.none")}</p>
-      ) : (
-        <>
-          {(() => {
-            let quota = visible;
-            return SEVERITIES.map((s) => {
-              const list = shown.filter((a) => a.severity === s);
-              if (!list.length) return null;
-              const part = list.slice(0, Math.max(0, quota));
-              quota -= part.length;
-              return (
-                <section key={s} className="space-y-2">
-                  <h2 className="font-medium text-sm">
-                    {t(sectionTitle[s])} <span className="text-muted-foreground">({list.length})</span>
-                  </h2>
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{part.map(card)}</div>
-                </section>
-              );
-            });
-          })()}
-          {shown.length > visible ? (
-            <div className="flex justify-center">
-              <Button variant="outline" onClick={() => setVisible((v) => v + PAGE)}>
-                {t("alerts.showMore", { n: shown.length - visible })}
-              </Button>
-            </div>
-          ) : null}
-        </>
-      )}
+      {/* the report: cards scroll here, the page buttons stay at the bottom */}
+      <AlertsReport
+        alerts={rows === null ? null : shown}
+        loading={rows === null}
+        page={page}
+        onPage={setPage}
+        ruleLabel={ruleLabel}
+        onOpen={open}
+      />
 
       <Dialog open={target !== null} onOpenChange={(o) => !o && setTarget(null)}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
