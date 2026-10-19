@@ -85,8 +85,8 @@ export async function insertAlerts(store: Store, drafts: AlertDraft[]): Promise<
     const res = await store.insert("alerts", { ...d, section: d.section ?? "bakery", amount: d.amount ?? null });
     if (res.ok) created++;
     else if (res.conflict) {
-      // a repeat burst that grows (3rd, 4th invoice) updates the same alert so the card lists every invoice
-      if (d.rule_key === "duplicate_burst") await store.update("alerts", [["fingerprint", "eq", d.fingerprint]], { title: d.title, detail: d.detail, odoo_id: d.odoo_id ?? null, amount: d.amount ?? null });
+      // a repeat burst that grows (3rd, 4th invoice), or more invoices on the same day, update the same alert so the card stays current
+      if (d.rule_key === "duplicate_burst" || d.rule_key === "unusual_amount") await store.update("alerts", [["fingerprint", "eq", d.fingerprint]], { title: d.title, detail: d.detail, odoo_id: d.odoo_id ?? null, amount: d.amount ?? null });
     } else logger.warn("alert insert failed", { rule: d.rule_key, error: res.error });
   }
   return created;
@@ -98,12 +98,19 @@ async function buildEventCtx(store: Store, rows: SalesRow[], now: Date): Promise
   return {
     now, rules, hours,
     amountHistory: async (row) => {
-      if (row.customer_id == null || row.salesman_id == null) return { pair: [] };
+      if (row.customer_id == null || row.salesman_id == null) return { days: [], todayOthers: 0, todayCount: 0 };
       const lookback = Number(rules.unusual_amount?.lookback_days ?? 90);
-      const created = row.odoo_created_at ?? now.toISOString();
-      const since = new Date(Date.parse(created) - lookback * 86_400_000).toISOString();
-      const { rows: h } = await store.select("sales_invoices", { columns: "amount_total", filters: [["customer_id", "eq", row.customer_id], ["salesman_id", "eq", row.salesman_id], ["kind", "eq", "invoice"], ["state", "eq", "posted"], ["odoo_id", "neq", row.odoo_id], ["odoo_created_at", "gte", since], ["odoo_created_at", "lt", created]], limit: 1000 });
-      return { pair: h.map((r) => Number(r.amount_total)) };
+      const day = row.invoice_date ?? (row.odoo_created_at ?? now.toISOString()).slice(0, 10);
+      const since = new Date(Date.parse(`${day}T00:00:00Z`) - lookback * 86_400_000).toISOString().slice(0, 10);
+      const { rows: h } = await store.select("sales_invoices", { columns: "invoice_date,amount_total", filters: [["customer_id", "eq", row.customer_id], ["salesman_id", "eq", row.salesman_id], ["kind", "eq", "invoice"], ["state", "eq", "posted"], ["odoo_id", "neq", row.odoo_id], ["invoice_date", "gte", since], ["invoice_date", "lte", day]], limit: 1000 });
+      const perDay = new Map<string, number>();
+      let todayOthers = 0;
+      let todayCount = 0;
+      for (const r of h) {
+        if (r.invoice_date === day) { todayOthers += Number(r.amount_total); todayCount++; }
+        else perDay.set(r.invoice_date, (perDay.get(r.invoice_date) ?? 0) + Number(r.amount_total));
+      }
+      return { days: [...perDay.values()], todayOthers, todayCount };
     },
     originalInvoiceDate: async (id) => (await store.select("sales_invoices", { columns: "invoice_date", filters: [["odoo_id", "eq", id]], limit: 1 })).rows[0]?.invoice_date ?? null,
     creditNotesOnDay: async (sid, day) => (await store.select("sales_invoices", { columns: "odoo_id", filters: [["salesman_id", "eq", sid], ["kind", "eq", "credit_note"], ["state", "eq", "posted"], ["invoice_date", "eq", day]], limit: 1 })).count,

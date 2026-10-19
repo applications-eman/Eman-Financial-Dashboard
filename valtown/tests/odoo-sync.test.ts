@@ -248,41 +248,48 @@ test("every credit note alerts, with who issued it, the reason and the original 
 });
 
 import { judgeUnusual } from "../lib/alerts-engine.ts";
-test("unusual amount: behaviour of ONE salesman towards ONE customer over the look-back window", () => {
-  const cfg = { min_history: 3, tolerance: 1.25, accept_if_similar: 2, similar_ratio: 0.8 };
-  const usual = [100, 125, 200, 110, 150, 125];
-  // inside the usual range: fine
-  assert.equal(judgeUnusual(210, usual, cfg), null);
-  assert.equal(judgeUnusual(240, usual, cfg), null); // a little above the top, within tolerance
-  // far beyond anything this salesman invoiced this customer: flagged, and the verdict explains it
-  const v = judgeUnusual(1000, usual, cfg)!;
-  assert.equal(v.reason, "above_pair");
-  assert.equal(v.usualTop, 200);
-  assert.equal(v.similar, 0);
-  // a size that has already happened a couple of times is part of the customer's behaviour
-  assert.equal(judgeUnusual(700, [100, 700, 720, 110, 150], cfg), null);
-  // an earlier one-off of 700 means 700 is not unheard of, but 1,000 is well beyond it
-  assert.equal(judgeUnusual(700, [100, 700, 130, 110, 150], cfg), null);
-  assert.equal(judgeUnusual(1000, [100, 700, 130, 110, 150], cfg)!.reason, "above_pair");
+test("unusual amount: the daily behaviour of ONE salesman towards ONE customer", () => {
+  const cfg = {};
+  const usual = [100, 110, 90, 125, 100, 105, 95];
+  // an ordinary day, or a normal ups-and-downs day: fine
+  assert.equal(judgeUnusual(130, usual, cfg), null);
+  // a genuine big day (500) in the middle of ~100 days is flagged once...
+  const v = judgeUnusual(500, usual, cfg)!;
+  assert.equal(v.reason, "above_usual");
+  assert.equal(v.highest, 125);
+  // ...and after it, days between the usual and that big day (200, 300) are NOT flagged
+  const afterSpike = [...usual, 500, 100, 110];
+  assert.equal(judgeUnusual(250, afterSpike, cfg), null);
+  assert.equal(judgeUnusual(300, afterSpike, cfg), null);
+  // but a day as big as the spike or bigger is flagged again, even though one such day happened before
+  assert.equal(judgeUnusual(525, afterSpike, cfg)!.reason, "above_usual");
+  assert.equal(judgeUnusual(700, afterSpike, cfg)!.reason, "above_usual");
+  // a size that happens again and again becomes the customer's normal: flagged the 2nd and 3rd time, accepted from the 4th
+  assert.equal(judgeUnusual(500, [...afterSpike, 500], cfg)!.reason, "above_usual");
+  assert.equal(judgeUnusual(500, [...afterSpike, 500, 520], cfg), null); // the 4th such day: now it is normal for this customer
   // no pattern to compare with: flagged as "no history"
   assert.equal(judgeUnusual(800, [], cfg)!.reason, "no_history");
   assert.equal(judgeUnusual(800, [100, 120], cfg)!.reason, "no_history");
 });
 
-test("invoices under the minimum amount are never checked; a big invoice to a regular customer is not flagged", async () => {
+test("unusual amount works per day and updates one alert when more invoices arrive the same day", async () => {
   const s = mem();
-  const mk = (id: number, amt: number, t: string) => mv(id, { partner_id: [900, "Regular Co"], amount_total: amt, amount_untaxed: amt / 1.15, amount_tax: amt - amt / 1.15, create_date: `2026-10-${t}:00`, write_date: `2026-10-${t}:01` });
-  // history to this customer is in the DB first (old enough to be history, ~10 days before NOW)
-  const hist = [mk(1, 900, "05 08:00"), mk(2, 950, "06 08:00"), mk(3, 880, "07 08:00"), mk(4, 920, "08 08:00")];
+  const mk = (id: number, amt: number, date: string, t: string) => mv(id, { partner_id: [900, "Regular Co"], invoice_date: date, amount_total: amt, amount_untaxed: amt / 1.15, amount_tax: amt - amt / 1.15, create_date: `${date} ${t}`, write_date: `${date} ${t}` });
+  // a week of ordinary days (~100) to this customer, imported as history
+  const hist = [mk(1, 100, "2026-10-05", "08:00:00"), mk(2, 110, "2026-10-06", "08:00:00"), mk(3, 90, "2026-10-07", "08:00:00"), mk(4, 125, "2026-10-08", "08:00:00")];
   await runSyncCycle(s, fakeOdoo(hist), base);
-  await runSyncCycle(s, fakeOdoo([...hist, mk(5, 400, "15 08:52")]), base); // below 500: no check
-  assert.equal((s.tables.alerts ?? []).filter((a) => a.rule_key === "unusual_amount").length, 0);
-  await runSyncCycle(s, fakeOdoo([...hist, mk(5, 400, "15 08:52"), mk(6, 1000, "15 08:54")]), base); // normal for this customer
-  assert.equal((s.tables.alerts ?? []).filter((a) => a.rule_key === "unusual_amount").length, 0);
-  await runSyncCycle(s, fakeOdoo([...hist, mk(5, 400, "15 08:52"), mk(6, 1000, "15 08:54"), mk(7, 4000, "15 08:56")]), base); // 4x the usual
-  const hits = (s.tables.alerts ?? []).filter((a) => a.rule_key === "unusual_amount");
-  assert.equal(hits.length, 1);
-  assert.equal(hits[0].detail.reason_code, "above_pair");
-  assert.equal(hits[0].detail.usual_count, 6);
-  assert.equal(hits[0].severity, "critical");
+  const unusual = () => (s.tables.alerts ?? []).filter((a) => a.rule_key === "unusual_amount");
+  // a 105 invoice today: ordinary
+  await runSyncCycle(s, fakeOdoo([...hist, mk(5, 105, "2026-10-15", "08:52:00")]), base);
+  assert.equal(unusual().length, 0);
+  // a 450 invoice later today: the day total is 555, far above a usual day (~105) and above the best day (125)
+  await runSyncCycle(s, fakeOdoo([...hist, mk(5, 105, "2026-10-15", "08:52:00"), mk(6, 450, "2026-10-15", "08:54:00")]), base);
+  assert.equal(unusual().length, 1);
+  assert.equal(unusual()[0].detail.day_total, 555);
+  assert.equal(unusual()[0].severity, "critical");
+  // one more invoice the same day updates the SAME alert
+  await runSyncCycle(s, fakeOdoo([...hist, mk(5, 105, "2026-10-15", "08:52:00"), mk(6, 450, "2026-10-15", "08:54:00"), mk(7, 100, "2026-10-15", "08:56:00")]), base);
+  assert.equal(unusual().length, 1);
+  assert.equal(unusual()[0].detail.day_total, 655);
+  assert.equal(unusual()[0].detail.day_invoices, 3);
 });

@@ -7,8 +7,11 @@ export interface EventCtx {
   now: Date;
   rules: RulesConfig;
   hours: { start_hour: number; end_hour: number };
-  /** amounts of EARLIER posted invoices (look-back window) by this same salesman to this same customer */
-  amountHistory(row: SalesRow): Promise<{ pair: number[] }>;
+  /**
+   * How this salesman invoices this customer, per DAY: the daily totals of the earlier days in the look-back window,
+   * and what was already invoiced to them today (excluding this invoice).
+   */
+  amountHistory(row: SalesRow): Promise<{ days: number[]; todayOthers: number; todayCount: number }>;
   originalInvoiceDate(odooId: number): Promise<string | null>;
   creditNotesOnDay(salesmanId: number, day: string): Promise<number>;
   /** the OTHER identical invoices (same salesman, customer and amount) created shortly before this one */
@@ -43,33 +46,35 @@ const quarterEnd = (day: string) => {
   return new Date(Date.UTC(y, qEndMonth, 0)); // last day of the quarter
 };
 
-const percentile = (xs: number[], p: number) => {
-  const a = [...xs].sort((x, y) => x - y);
-  return a[Math.min(a.length - 1, Math.max(0, Math.ceil(p * a.length) - 1))];
-};
-export interface UnusualVerdict { reason: "above_pair" | "no_history"; usualTop: number; median: number; n: number; similar: number; ratio: number }
+export interface UnusualVerdict { reason: "above_usual" | "no_history"; median: number; highest: number; days: number; similar: number; ratio: number }
 
 /**
- * Behaviour check for ONE salesman and ONE customer (earlier invoices of the look-back window only).
- * The invoice is "unusual" when ALL of these are true:
- *  - there is a pattern to compare with (>= min_history earlier invoices); with no pattern it is flagged as "no history";
- *  - it is clearly above the top of the usual range (the 90th percentile of what this salesman invoiced this customer) by `tolerance`;
- *  - an invoice of about this size has hardly happened before: fewer than `accept_if_similar` earlier invoices reached
- *    `similar_ratio` of this amount. (Once a size has happened a couple of times it is part of the customer's behaviour.)
+ * Behaviour check for ONE salesman and ONE customer, per day.
+ *  history = the daily totals of the days this salesman invoiced this customer in the look-back window (earlier days only).
+ *  dayTotal = what has been invoiced to this customer by this salesman today, including the new invoice.
+ * The day is "unusual" when ALL of these are true:
+ *  - dayTotal reaches the minimum amount (checked by the caller);
+ *  - there is a pattern to compare with (>= min_history earlier days); with no pattern it is flagged as "no history";
+ *  - it is clearly above a normal day: at least `clear_factor` x the usual (median) day;
+ *  - it is as big as the biggest day so far or bigger: at least `near_highest` x the highest day (so after one genuine big day,
+ *    ordinary days between the usual and that big day are NOT flagged);
+ *  - a day this big has hardly happened: fewer than `accept_if_similar` earlier days reached `similar_ratio` x dayTotal
+ *    (a size that keeps happening becomes the customer's normal behaviour).
  */
-export function judgeUnusual(amount: number, pair: number[], cfg: { [k: string]: unknown }): UnusualVerdict | null {
+export function judgeUnusual(dayTotal: number, days: number[], cfg: { [k: string]: unknown }): UnusualVerdict | null {
   const minN = Number(cfg.min_history ?? 3);
-  if (pair.length < minN) return { reason: "no_history", usualTop: 0, median: 0, n: pair.length, similar: 0, ratio: 0 };
-  const tolerance = Number(cfg.tolerance ?? 1.25);
-  const acceptIfSimilar = Number(cfg.accept_if_similar ?? 2);
+  if (days.length < minN) return { reason: "no_history", median: 0, highest: 0, days: days.length, similar: 0, ratio: 0 };
+  const clear = Number(cfg.clear_factor ?? 1.5);
+  const nearHighest = Number(cfg.near_highest ?? 0.9);
+  const acceptIfSimilar = Number(cfg.accept_if_similar ?? 3);
   const similarRatio = Number(cfg.similar_ratio ?? 0.8);
-  const top = percentile(pair, 0.9);
-  const sorted = [...pair].sort((x, y) => x - y);
+  const sorted = [...days].sort((x, y) => x - y);
   const m = sorted.length >> 1;
   const med = sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2;
-  const similar = pair.filter((x) => x >= amount * similarRatio).length;
-  if (amount <= top * tolerance || similar >= acceptIfSimilar) return null;
-  return { reason: "above_pair", usualTop: top, median: med, n: pair.length, similar, ratio: top > 0 ? amount / top : Infinity };
+  const highest = sorted[sorted.length - 1];
+  const similar = days.filter((x) => x >= dayTotal * similarRatio).length;
+  if (dayTotal < med * clear || dayTotal < highest * nearHighest || similar >= acceptIfSimilar) return null;
+  return { reason: "above_usual", median: med, highest, days: days.length, similar, ratio: med > 0 ? dayTotal / med : Infinity };
 }
 
 export async function evaluateInvoiceEvent(ev: InvoiceEvent, ctx: EventCtx): Promise<AlertDraft[]> {
@@ -139,16 +144,20 @@ export async function evaluateInvoiceEvent(ev: InvoiceEvent, ctx: EventCtx): Pro
       const h = riyadhParts(new Date(created)).hour;
       if (h < ctx.hours.start_hour || h >= ctx.hours.end_hour) out.push(base("off_hours", R.off_hours, row, `Invoice ${num} created at ${String(h).padStart(2, "0")}:00 (outside working hours)`, { hour: h }));
     }
-    if (on("unusual_amount") && row.amount_total >= Number(R.unusual_amount.min_amount)) {
+    if (on("unusual_amount")) {
       const hist = await ctx.amountHistory(row);
-      const v = judgeUnusual(row.amount_total, hist.pair, R.unusual_amount);
-      if (v) {
-        const cust = row.customer_name ?? "this customer";
-        const title =
-          v.reason === "no_history"
-            ? `${who}: invoice ${num} of SAR ${money(row.amount_total)} to ${cust} - ${who} has no usual pattern with this customer`
-            : `${who}: invoice ${num} of SAR ${money(row.amount_total)} to ${cust} is ${v.ratio.toFixed(1)}x the top of what ${who} usually invoices them (usually up to SAR ${money(v.usualTop)})`;
-        out.push(base("unusual_amount", R.unusual_amount, row, title, { reason_code: v.reason, usual_amount: Math.round(v.usualTop * 100) / 100, usual_median: Math.round(v.median * 100) / 100, usual_count: v.n, similar_before: v.similar, ratio: Math.round(v.ratio * 10) / 10 }));
+      const dayTotal = hist.todayOthers + row.amount_total;
+      if (dayTotal >= Number(R.unusual_amount.min_amount)) {
+        const v = judgeUnusual(dayTotal, hist.days, R.unusual_amount);
+        if (v) {
+          const cust = row.customer_name ?? "this customer";
+          const day = row.invoice_date ?? (row.odoo_created_at ?? "").slice(0, 10);
+          const title =
+            v.reason === "no_history"
+              ? `${who}: SAR ${money(dayTotal)} invoiced to ${cust} on ${day} - ${who} has no usual pattern with this customer yet`
+              : `${who}: SAR ${money(dayTotal)} invoiced to ${cust} on ${day} - a usual day is about SAR ${money(v.median)} (highest SAR ${money(v.highest)})`;
+          out.push(base("unusual_amount", R.unusual_amount, row, title, { reason_code: v.reason, day, day_total: Math.round(dayTotal * 100) / 100, day_invoices: hist.todayCount + 1, usual_amount: Math.round(v.median * 100) / 100, usual_highest: Math.round(v.highest * 100) / 100, usual_count: v.days, similar_before: v.similar, ratio: Math.round(v.ratio * 10) / 10 }, `unusual_amount:${row.salesman_id}:${row.customer_id}:${day}`));
+        }
       }
     }
     if (on("duplicate_burst")) {

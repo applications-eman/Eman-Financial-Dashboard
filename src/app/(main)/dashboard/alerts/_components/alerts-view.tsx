@@ -450,9 +450,19 @@ export function AlertsView() {
                   : null}
                 {target.rule_key === "unusual_amount"
                   ? fact(
-                      t("alerts.usual"),
+                      t("alerts.dayTotal"),
+                      `${fmtMoney(Number(target.detail?.day_total ?? target.amount))} ${t("common.sar")} (${t("alerts.dayInvoices", { n: Number(target.detail?.day_invoices ?? 1) })})`,
+                    )
+                  : null}
+                {target.rule_key === "unusual_amount"
+                  ? fact(
+                      t("alerts.usualDay"),
                       Number(target.detail?.usual_count ?? 0) > 0
-                        ? `${fmtMoney(Number(target.detail?.usual_amount))} ${t("common.sar")} (${target.detail?.usual_count}) · ${String(target.detail?.ratio)}×`
+                        ? t("alerts.usualDayValue", {
+                            usual: fmtMoney(Number(target.detail?.usual_amount)),
+                            highest: fmtMoney(Number(target.detail?.usual_highest)),
+                            n: Number(target.detail?.usual_count),
+                          })
                         : t("alerts.noUsual"),
                     )
                   : null}

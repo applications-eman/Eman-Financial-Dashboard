@@ -64,7 +64,7 @@ export const DEFAULT_RULES: RulesConfig = {
   invoice_backdated: { enabled: true, severity: "warning", max_days: 1 },
   number_gap: { enabled: true, severity: "critical" },
   duplicate_burst: { enabled: true, severity: "critical", window_minutes: 10, min_count: 2 },
-  unusual_amount: { enabled: true, severity: "critical", min_amount: 500, lookback_days: 90, min_history: 3, tolerance: 1.25, accept_if_similar: 2, similar_ratio: 0.8 },
+  unusual_amount: { enabled: true, severity: "critical", min_amount: 500, lookback_days: 90, min_history: 3, clear_factor: 1.5, near_highest: 0.9, accept_if_similar: 3, similar_ratio: 0.8 },
   off_hours: { enabled: false, severity: "info" },
   sales_drop: { enabled: false, severity: "warning", drop_pct: 60, check_after_hour: 15, min_usual_amount: 500 },
   no_sales_by_time: { enabled: false, severity: "info", by_hour: 11 },

@@ -80,17 +80,25 @@ function AlertCard({ a, label, onOpen }: { a: AlertRow; label: string; onOpen: (
         </p>
       ) : null}
       {a.rule_key === "unusual_amount" ? (
-        <p className="rounded-md bg-muted/60 p-2 text-xs">
-          <span className="text-muted-foreground">{t("alerts.usual")}: </span>
-          {Number(a.detail?.usual_count ?? 0) > 0 ? (
-            <>
-              {fmtMoney(Number(a.detail?.usual_amount))} {t("common.sar")} ({a.detail?.usual_count}) ·{" "}
-              {String(a.detail?.ratio)}×
-            </>
-          ) : (
-            t("alerts.noUsual")
-          )}
-        </p>
+        <div className="space-y-0.5 rounded-md bg-muted/60 p-2 text-xs">
+          <p>
+            <span className="text-muted-foreground">{t("alerts.dayTotal")}: </span>
+            <b className="tabular-nums">
+              {fmtMoney(Number(a.detail?.day_total ?? a.amount))} {t("common.sar")}
+            </b>{" "}
+            ({t("alerts.dayInvoices", { n: Number(a.detail?.day_invoices ?? 1) })})
+          </p>
+          <p>
+            <span className="text-muted-foreground">{t("alerts.usualDay")}: </span>
+            {Number(a.detail?.usual_count ?? 0) > 0
+              ? t("alerts.usualDayValue", {
+                  usual: fmtMoney(Number(a.detail?.usual_amount)),
+                  highest: fmtMoney(Number(a.detail?.usual_highest)),
+                  n: Number(a.detail?.usual_count),
+                })
+              : t("alerts.noUsual")}
+          </p>
+        </div>
       ) : null}
       {invoiceRefs(a).length ? (
         <ul className="space-y-0.5 rounded-md bg-muted/60 p-2" dir="ltr">
