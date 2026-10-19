@@ -7,8 +7,8 @@ export interface EventCtx {
   now: Date;
   rules: RulesConfig;
   hours: { start_hour: number; end_hour: number };
-  /** amounts of EARLIER posted invoices (look-back window): to this same customer by this same salesman, and to this customer by anyone */
-  amountHistory(row: SalesRow): Promise<{ pair: number[]; customer: number[] }>;
+  /** amounts of EARLIER posted invoices (look-back window) by this same salesman to this same customer */
+  amountHistory(row: SalesRow): Promise<{ pair: number[] }>;
   originalInvoiceDate(odooId: number): Promise<string | null>;
   creditNotesOnDay(salesmanId: number, day: string): Promise<number>;
   /** the OTHER identical invoices (same salesman, customer and amount) created shortly before this one */
@@ -43,32 +43,33 @@ const quarterEnd = (day: string) => {
   return new Date(Date.UTC(y, qEndMonth, 0)); // last day of the quarter
 };
 
-const median = (xs: number[]) => {
+const percentile = (xs: number[], p: number) => {
   const a = [...xs].sort((x, y) => x - y);
-  const m = a.length >> 1;
-  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+  return a[Math.min(a.length - 1, Math.max(0, Math.ceil(p * a.length) - 1))];
 };
-export interface UnusualVerdict { reason: "above_pair" | "above_customer" | "no_history"; usual: number; n: number; ratio: number }
+export interface UnusualVerdict { reason: "above_pair" | "no_history"; usualTop: number; median: number; n: number; similar: number; ratio: number }
 
 /**
- * Is this invoice (already known to be >= the minimum amount) unusual for THIS customer?
- *  1. what this salesman usually invoices this customer (needs >= min_history earlier invoices);
- *  2. otherwise what this customer usually orders from anyone;
- *  3. otherwise there is no usual order on record (new or rare customer): flag it.
- * "Unusual" = more than `multiplier` x the usual (median) amount.
+ * Behaviour check for ONE salesman and ONE customer (earlier invoices of the look-back window only).
+ * The invoice is "unusual" when ALL of these are true:
+ *  - there is a pattern to compare with (>= min_history earlier invoices); with no pattern it is flagged as "no history";
+ *  - it is clearly above the top of the usual range (the 90th percentile of what this salesman invoiced this customer) by `tolerance`;
+ *  - an invoice of about this size has hardly happened before: fewer than `accept_if_similar` earlier invoices reached
+ *    `similar_ratio` of this amount. (Once a size has happened a couple of times it is part of the customer's behaviour.)
  */
-export function judgeUnusual(amount: number, pair: number[], customer: number[], cfg: { [k: string]: unknown }): UnusualVerdict | null {
-  const mult = Number(cfg.multiplier ?? 3);
+export function judgeUnusual(amount: number, pair: number[], cfg: { [k: string]: unknown }): UnusualVerdict | null {
   const minN = Number(cfg.min_history ?? 3);
-  if (pair.length >= minN) {
-    const usual = median(pair);
-    return amount > usual * mult ? { reason: "above_pair", usual, n: pair.length, ratio: usual > 0 ? amount / usual : Infinity } : null;
-  }
-  if (customer.length >= minN) {
-    const usual = median(customer);
-    return amount > usual * mult ? { reason: "above_customer", usual, n: customer.length, ratio: usual > 0 ? amount / usual : Infinity } : null;
-  }
-  return { reason: "no_history", usual: 0, n: Math.max(pair.length, customer.length), ratio: 0 };
+  if (pair.length < minN) return { reason: "no_history", usualTop: 0, median: 0, n: pair.length, similar: 0, ratio: 0 };
+  const tolerance = Number(cfg.tolerance ?? 1.25);
+  const acceptIfSimilar = Number(cfg.accept_if_similar ?? 2);
+  const similarRatio = Number(cfg.similar_ratio ?? 0.8);
+  const top = percentile(pair, 0.9);
+  const sorted = [...pair].sort((x, y) => x - y);
+  const m = sorted.length >> 1;
+  const med = sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2;
+  const similar = pair.filter((x) => x >= amount * similarRatio).length;
+  if (amount <= top * tolerance || similar >= acceptIfSimilar) return null;
+  return { reason: "above_pair", usualTop: top, median: med, n: pair.length, similar, ratio: top > 0 ? amount / top : Infinity };
 }
 
 export async function evaluateInvoiceEvent(ev: InvoiceEvent, ctx: EventCtx): Promise<AlertDraft[]> {
@@ -140,16 +141,14 @@ export async function evaluateInvoiceEvent(ev: InvoiceEvent, ctx: EventCtx): Pro
     }
     if (on("unusual_amount") && row.amount_total >= Number(R.unusual_amount.min_amount)) {
       const hist = await ctx.amountHistory(row);
-      const v = judgeUnusual(row.amount_total, hist.pair, hist.customer, R.unusual_amount);
+      const v = judgeUnusual(row.amount_total, hist.pair, R.unusual_amount);
       if (v) {
         const cust = row.customer_name ?? "this customer";
         const title =
           v.reason === "no_history"
-            ? `${who}: invoice ${num} of SAR ${money(row.amount_total)} to ${cust} - no usual orders on record for this customer`
-            : v.reason === "above_pair"
-              ? `${who}: invoice ${num} of SAR ${money(row.amount_total)} is ${v.ratio.toFixed(1)}x what ${who} usually invoices ${cust} (usual SAR ${money(v.usual)})`
-              : `${who}: invoice ${num} of SAR ${money(row.amount_total)} is ${v.ratio.toFixed(1)}x ${cust}'s usual order (usual SAR ${money(v.usual)})`;
-        out.push(base("unusual_amount", R.unusual_amount, row, title, { reason_code: v.reason, usual_amount: v.usual, usual_count: v.n, ratio: Math.round(v.ratio * 10) / 10 }));
+            ? `${who}: invoice ${num} of SAR ${money(row.amount_total)} to ${cust} - ${who} has no usual pattern with this customer`
+            : `${who}: invoice ${num} of SAR ${money(row.amount_total)} to ${cust} is ${v.ratio.toFixed(1)}x the top of what ${who} usually invoices them (usually up to SAR ${money(v.usualTop)})`;
+        out.push(base("unusual_amount", R.unusual_amount, row, title, { reason_code: v.reason, usual_amount: Math.round(v.usualTop * 100) / 100, usual_median: Math.round(v.median * 100) / 100, usual_count: v.n, similar_before: v.similar, ratio: Math.round(v.ratio * 10) / 10 }));
       }
     }
     if (on("duplicate_burst")) {

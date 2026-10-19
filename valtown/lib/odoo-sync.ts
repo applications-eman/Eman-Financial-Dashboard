@@ -98,12 +98,12 @@ async function buildEventCtx(store: Store, rows: SalesRow[], now: Date): Promise
   return {
     now, rules, hours,
     amountHistory: async (row) => {
-      if (row.customer_id == null) return { pair: [], customer: [] };
+      if (row.customer_id == null || row.salesman_id == null) return { pair: [] };
       const lookback = Number(rules.unusual_amount?.lookback_days ?? 90);
       const created = row.odoo_created_at ?? now.toISOString();
       const since = new Date(Date.parse(created) - lookback * 86_400_000).toISOString();
-      const { rows: h } = await store.select("sales_invoices", { columns: "salesman_id,amount_total", filters: [["customer_id", "eq", row.customer_id], ["kind", "eq", "invoice"], ["state", "eq", "posted"], ["odoo_id", "neq", row.odoo_id], ["odoo_created_at", "gte", since], ["odoo_created_at", "lt", created]], limit: 1000 });
-      return { pair: h.filter((r) => r.salesman_id === row.salesman_id).map((r) => Number(r.amount_total)), customer: h.map((r) => Number(r.amount_total)) };
+      const { rows: h } = await store.select("sales_invoices", { columns: "amount_total", filters: [["customer_id", "eq", row.customer_id], ["salesman_id", "eq", row.salesman_id], ["kind", "eq", "invoice"], ["state", "eq", "posted"], ["odoo_id", "neq", row.odoo_id], ["odoo_created_at", "gte", since], ["odoo_created_at", "lt", created]], limit: 1000 });
+      return { pair: h.map((r) => Number(r.amount_total)) };
     },
     originalInvoiceDate: async (id) => (await store.select("sales_invoices", { columns: "invoice_date", filters: [["odoo_id", "eq", id]], limit: 1 })).rows[0]?.invoice_date ?? null,
     creditNotesOnDay: async (sid, day) => (await store.select("sales_invoices", { columns: "odoo_id", filters: [["salesman_id", "eq", sid], ["kind", "eq", "credit_note"], ["state", "eq", "posted"], ["invoice_date", "eq", day]], limit: 1 })).count,

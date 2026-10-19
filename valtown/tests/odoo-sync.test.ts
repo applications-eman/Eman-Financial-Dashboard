@@ -248,19 +248,25 @@ test("every credit note alerts, with who issued it, the reason and the original 
 });
 
 import { judgeUnusual } from "../lib/alerts-engine.ts";
-test("unusual amount is judged against what THIS salesman usually invoices THIS customer", () => {
-  const cfg = { multiplier: 3, min_history: 3 };
-  // usual 600-ish to this customer: 1,000 is fine, 2,500 is unusual
-  assert.equal(judgeUnusual(1000, [600, 650, 580, 620], [], cfg), null);
-  const v = judgeUnusual(2500, [600, 650, 580, 620], [], cfg)!;
+test("unusual amount: behaviour of ONE salesman towards ONE customer over the look-back window", () => {
+  const cfg = { min_history: 3, tolerance: 1.25, accept_if_similar: 2, similar_ratio: 0.8 };
+  const usual = [100, 125, 200, 110, 150, 125];
+  // inside the usual range: fine
+  assert.equal(judgeUnusual(210, usual, cfg), null);
+  assert.equal(judgeUnusual(240, usual, cfg), null); // a little above the top, within tolerance
+  // far beyond anything this salesman invoiced this customer: flagged, and the verdict explains it
+  const v = judgeUnusual(1000, usual, cfg)!;
   assert.equal(v.reason, "above_pair");
-  assert.ok(v.ratio > 3.9 && v.ratio < 4.2);
-  // too little history with this salesman: fall back to what the customer usually orders from anyone
-  assert.equal(judgeUnusual(700, [600], [500, 650, 600], cfg), null);
-  assert.equal(judgeUnusual(3000, [600], [500, 650, 600], cfg)!.reason, "above_customer");
-  // no usual orders on record (new or rare customer): flagged
-  assert.equal(judgeUnusual(800, [], [], cfg)!.reason, "no_history");
-  assert.equal(judgeUnusual(800, [600], [600, 700], cfg)!.reason, "no_history");
+  assert.equal(v.usualTop, 200);
+  assert.equal(v.similar, 0);
+  // a size that has already happened a couple of times is part of the customer's behaviour
+  assert.equal(judgeUnusual(700, [100, 700, 720, 110, 150], cfg), null);
+  // an earlier one-off of 700 means 700 is not unheard of, but 1,000 is well beyond it
+  assert.equal(judgeUnusual(700, [100, 700, 130, 110, 150], cfg), null);
+  assert.equal(judgeUnusual(1000, [100, 700, 130, 110, 150], cfg)!.reason, "above_pair");
+  // no pattern to compare with: flagged as "no history"
+  assert.equal(judgeUnusual(800, [], cfg)!.reason, "no_history");
+  assert.equal(judgeUnusual(800, [100, 120], cfg)!.reason, "no_history");
 });
 
 test("invoices under the minimum amount are never checked; a big invoice to a regular customer is not flagged", async () => {
@@ -277,5 +283,6 @@ test("invoices under the minimum amount are never checked; a big invoice to a re
   const hits = (s.tables.alerts ?? []).filter((a) => a.rule_key === "unusual_amount");
   assert.equal(hits.length, 1);
   assert.equal(hits[0].detail.reason_code, "above_pair");
+  assert.equal(hits[0].detail.usual_count, 6);
   assert.equal(hits[0].severity, "critical");
 });
