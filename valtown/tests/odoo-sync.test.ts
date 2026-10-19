@@ -322,4 +322,5 @@ test("a big invoice to a customer with a big history is still caught by the sale
   assert.equal(a.length, 1);
   assert.equal(a[0].severity, "critical");
   assert.ok(a[0].detail.reasons.includes("above_usual"));
+  assert.ok(a[0].detail.invoices.some((i: any) => i.amount === 1518));
 });

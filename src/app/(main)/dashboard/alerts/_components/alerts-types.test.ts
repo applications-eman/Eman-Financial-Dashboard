@@ -60,6 +60,24 @@ describe("totalsOf", () => {
     assert.equal(totalsOf([dup, big]).invoiceCount, 2);
   });
 
+  it("a day-total alert counts each listed invoice at its own amount", () => {
+    const day = row({
+      id: 7,
+      rule_key: "unusual_amount",
+      amount: 94.88,
+      detail: {
+        number: "INV/9",
+        invoices: [
+          { number: "INV/8", amount: 1518 },
+          { number: "INV/9", amount: 94.88 },
+        ],
+      },
+    });
+    const t = totalsOf([day]);
+    assert.equal(t.invoiceCount, 2);
+    assert.equal(Math.round(t.invoiceTotal * 100), 161288);
+  });
+
   it("an empty list is all zeros", () => {
     assert.deepEqual(totalsOf([]), {
       alerts: 0,

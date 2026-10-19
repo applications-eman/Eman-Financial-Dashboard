@@ -112,6 +112,7 @@ function AlertCard({ a, label, onOpen }: { a: AlertRow; label: string; onOpen: (
           {invoiceRefs(a).map((i) => (
             <li key={i.number} className="flex items-center justify-between gap-2 font-mono text-xs">
               <span>{i.number}</span>
+              {i.amount != null ? <span className="tabular-nums">{fmtMoney(i.amount)}</span> : null}
               <span className="text-muted-foreground">{i.issued_at ? fmtDateTime(i.issued_at).slice(11) : ""}</span>
             </li>
           ))}

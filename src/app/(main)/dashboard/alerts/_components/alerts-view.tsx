@@ -524,6 +524,7 @@ export function AlertsView() {
                     {invoiceRefs(target).map((i) => (
                       <li key={i.number} className="flex justify-between gap-2 font-mono text-xs">
                         <span>{i.number}</span>
+                        {i.amount != null ? <span className="tabular-nums">{fmtMoney(i.amount)}</span> : null}
                         <span className="text-muted-foreground">{i.issued_at ? fmtDateTime(i.issued_at) : ""}</span>
                       </li>
                     ))}

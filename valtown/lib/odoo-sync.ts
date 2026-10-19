@@ -98,19 +98,20 @@ async function buildEventCtx(store: Store, rows: SalesRow[], now: Date): Promise
   return {
     now, rules, hours,
     amountHistory: async (row) => {
-      if (row.customer_id == null || row.salesman_id == null) return { days: [], todayOthers: 0, todayCount: 0 };
+      if (row.customer_id == null || row.salesman_id == null) return { days: [], todayOthers: 0, todayCount: 0, todayList: [] };
       const lookback = Number(rules.unusual_amount?.lookback_days ?? 90);
       const day = row.invoice_date ?? (row.odoo_created_at ?? now.toISOString()).slice(0, 10);
       const since = new Date(Date.parse(`${day}T00:00:00Z`) - lookback * 86_400_000).toISOString().slice(0, 10);
-      const { rows: h } = await store.select("sales_invoices", { columns: "invoice_date,amount_total", filters: [["customer_id", "eq", row.customer_id], ["salesman_id", "eq", row.salesman_id], ["kind", "eq", "invoice"], ["state", "eq", "posted"], ["odoo_id", "neq", row.odoo_id], ["invoice_date", "gte", since], ["invoice_date", "lte", day]], limit: 1000 });
+      const { rows: h } = await store.select("sales_invoices", { columns: "invoice_date,amount_total,number,odoo_created_at", filters: [["customer_id", "eq", row.customer_id], ["salesman_id", "eq", row.salesman_id], ["kind", "eq", "invoice"], ["state", "eq", "posted"], ["odoo_id", "neq", row.odoo_id], ["invoice_date", "gte", since], ["invoice_date", "lte", day]], limit: 1000 });
       const perDay = new Map<string, number>();
       let todayOthers = 0;
       let todayCount = 0;
+      const todayList: { number: string | null; amount: number; issued_at: string | null }[] = [];
       for (const r of h) {
-        if (r.invoice_date === day) { todayOthers += Number(r.amount_total); todayCount++; }
+        if (r.invoice_date === day) { todayOthers += Number(r.amount_total); todayCount++; todayList.push({ number: r.number ?? null, amount: Number(r.amount_total), issued_at: r.odoo_created_at ?? null }); }
         else perDay.set(r.invoice_date, (perDay.get(r.invoice_date) ?? 0) + Number(r.amount_total));
       }
-      return { days: [...perDay.values()], todayOthers, todayCount };
+      return { days: [...perDay.values()], todayOthers, todayCount, todayList };
     },
     salesmanTypical: async (row) => {
       if (row.salesman_id == null) return { median: 0, count: 0 };

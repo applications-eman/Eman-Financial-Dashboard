@@ -21,6 +21,7 @@ export interface AlertRow {
 export interface InvoiceRef {
   number: string | null;
   issued_at: string | null;
+  amount?: number;
 }
 
 export const isCredit = (a: AlertRow) => a.detail?.kind === "credit_note";
@@ -49,7 +50,7 @@ export function totalsOf(list: AlertRow[]): AlertTotals {
     const amount = Number(a.amount ?? 0);
     const refs = invoiceRefs(a);
     if (refs.length) {
-      for (const r of refs) docs.set(`n:${r.number}`, { credit: false, amount });
+      for (const r of refs) docs.set(`n:${r.number}`, { credit: false, amount: r.amount ?? amount });
       if (a.rule_key === "duplicate_burst") repeatedExtra += amount * Math.max(0, refs.length - 1);
     } else {
       const key = str(a.detail?.number) ? `n:${str(a.detail?.number)}` : `id:${a.id}`;

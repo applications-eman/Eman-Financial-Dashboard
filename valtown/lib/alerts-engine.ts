@@ -11,7 +11,7 @@ export interface EventCtx {
    * How this salesman invoices this customer, per DAY: the daily totals of the earlier days in the look-back window,
    * and what was already invoiced to them today (excluding this invoice).
    */
-  amountHistory(row: SalesRow): Promise<{ days: number[]; todayOthers: number; todayCount: number }>;
+  amountHistory(row: SalesRow): Promise<{ days: number[]; todayOthers: number; todayCount: number; todayList?: { number: string | null; amount: number; issued_at: string | null }[] }>;
   /** this salesman's recent invoices to ANY customer: the median invoice and how many there were */
   salesmanTypical(row: SalesRow): Promise<{ median: number; count: number }>;
   originalInvoiceDate(odooId: number): Promise<string | null>;
@@ -201,6 +201,9 @@ export async function evaluateInvoiceEvent(ev: InvoiceEvent, ctx: EventCtx): Pro
         const usual = r1 && r1.code === "above_usual" ? r1 : null;
         out.push(base("unusual_amount", cfg, row, title, {
           reason_code: reasons[0].code, reasons: reasons.map((r) => r.code), day, day_total: Math.round(dayTotal * 100) / 100, day_invoices: hist.todayCount + 1,
+          invoices: [...(hist.todayList ?? []), { number: row.number, amount: row.amount_total, issued_at: row.odoo_created_at }]
+            .sort((a, b) => String(a.issued_at).localeCompare(String(b.issued_at)))
+            .map((i) => ({ number: i.number, amount: i.amount, issued_at: i.issued_at })),
           usual_amount: usual ? Math.round(Number(usual.median) * 100) / 100 : null, usual_highest: usual ? Math.round(Number(usual.highest) * 100) / 100 : null,
           usual_count: r1 ? Number(r1.days) : hist.days.length, similar_before: usual ? Number(usual.similar) : null, ratio: usual ? Math.round(Number(usual.ratio) * 10) / 10 : null,
           salesman_usual: r2 ? Math.round(Number(r2.median) * 100) / 100 : sm ? Math.round(sm.median * 100) / 100 : null,
