@@ -95,14 +95,16 @@ export async function insertAlerts(store: Store, drafts: AlertDraft[]): Promise<
 async function buildEventCtx(store: Store, rows: SalesRow[], now: Date): Promise<EventCtx> {
   const rules = mergeRules(await getSetting(store, "alert_rules", {}));
   const hours = await getSetting(store, "working_hours", DEFAULT_HOURS);
-  const avg = new Map<number, number>();
-  const since = new Date(now.getTime() - 30 * 86_400_000).toISOString();
-  for (const sid of new Set(rows.map((r) => r.salesman_id).filter((x): x is number => x != null))) {
-    const { rows: hist } = await store.select("sales_invoices", { columns: "amount_total", filters: [["salesman_id", "eq", sid], ["kind", "eq", "invoice"], ["state", "eq", "posted"], ["odoo_created_at", "gte", since]], limit: 1000 });
-    if (hist.length >= 5) avg.set(sid, hist.reduce((s, h) => s + Number(h.amount_total), 0) / hist.length);
-  }
   return {
-    now, rules, hours, avgBySalesman: avg,
+    now, rules, hours,
+    amountHistory: async (row) => {
+      if (row.customer_id == null) return { pair: [], customer: [] };
+      const lookback = Number(rules.unusual_amount?.lookback_days ?? 90);
+      const created = row.odoo_created_at ?? now.toISOString();
+      const since = new Date(Date.parse(created) - lookback * 86_400_000).toISOString();
+      const { rows: h } = await store.select("sales_invoices", { columns: "salesman_id,amount_total", filters: [["customer_id", "eq", row.customer_id], ["kind", "eq", "invoice"], ["state", "eq", "posted"], ["odoo_id", "neq", row.odoo_id], ["odoo_created_at", "gte", since], ["odoo_created_at", "lt", created]], limit: 1000 });
+      return { pair: h.filter((r) => r.salesman_id === row.salesman_id).map((r) => Number(r.amount_total)), customer: h.map((r) => Number(r.amount_total)) };
+    },
     originalInvoiceDate: async (id) => (await store.select("sales_invoices", { columns: "invoice_date", filters: [["odoo_id", "eq", id]], limit: 1 })).rows[0]?.invoice_date ?? null,
     creditNotesOnDay: async (sid, day) => (await store.select("sales_invoices", { columns: "odoo_id", filters: [["salesman_id", "eq", sid], ["kind", "eq", "credit_note"], ["state", "eq", "posted"], ["invoice_date", "eq", day]], limit: 1 })).count,
     similarInvoices: async (row, minutes) => {

@@ -246,3 +246,36 @@ test("every credit note alerts, with who issued it, the reason and the original 
   assert.equal(b.detail.no_reason, true);
   assert.ok(s.tables.alerts.some((x) => x.rule_key === "refund_unlinked" && x.odoo_id === 3));
 });
+
+import { judgeUnusual } from "../lib/alerts-engine.ts";
+test("unusual amount is judged against what THIS salesman usually invoices THIS customer", () => {
+  const cfg = { multiplier: 3, min_history: 3 };
+  // usual 600-ish to this customer: 1,000 is fine, 2,500 is unusual
+  assert.equal(judgeUnusual(1000, [600, 650, 580, 620], [], cfg), null);
+  const v = judgeUnusual(2500, [600, 650, 580, 620], [], cfg)!;
+  assert.equal(v.reason, "above_pair");
+  assert.ok(v.ratio > 3.9 && v.ratio < 4.2);
+  // too little history with this salesman: fall back to what the customer usually orders from anyone
+  assert.equal(judgeUnusual(700, [600], [500, 650, 600], cfg), null);
+  assert.equal(judgeUnusual(3000, [600], [500, 650, 600], cfg)!.reason, "above_customer");
+  // no usual orders on record (new or rare customer): flagged
+  assert.equal(judgeUnusual(800, [], [], cfg)!.reason, "no_history");
+  assert.equal(judgeUnusual(800, [600], [600, 700], cfg)!.reason, "no_history");
+});
+
+test("invoices under the minimum amount are never checked; a big invoice to a regular customer is not flagged", async () => {
+  const s = mem();
+  const mk = (id: number, amt: number, t: string) => mv(id, { partner_id: [900, "Regular Co"], amount_total: amt, amount_untaxed: amt / 1.15, amount_tax: amt - amt / 1.15, create_date: `2026-10-${t}:00`, write_date: `2026-10-${t}:01` });
+  // history to this customer is in the DB first (old enough to be history, ~10 days before NOW)
+  const hist = [mk(1, 900, "05 08:00"), mk(2, 950, "06 08:00"), mk(3, 880, "07 08:00"), mk(4, 920, "08 08:00")];
+  await runSyncCycle(s, fakeOdoo(hist), base);
+  await runSyncCycle(s, fakeOdoo([...hist, mk(5, 400, "15 08:52")]), base); // below 500: no check
+  assert.equal((s.tables.alerts ?? []).filter((a) => a.rule_key === "unusual_amount").length, 0);
+  await runSyncCycle(s, fakeOdoo([...hist, mk(5, 400, "15 08:52"), mk(6, 1000, "15 08:54")]), base); // normal for this customer
+  assert.equal((s.tables.alerts ?? []).filter((a) => a.rule_key === "unusual_amount").length, 0);
+  await runSyncCycle(s, fakeOdoo([...hist, mk(5, 400, "15 08:52"), mk(6, 1000, "15 08:54"), mk(7, 4000, "15 08:56")]), base); // 4x the usual
+  const hits = (s.tables.alerts ?? []).filter((a) => a.rule_key === "unusual_amount");
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].detail.reason_code, "above_pair");
+  assert.equal(hits[0].severity, "critical");
+});

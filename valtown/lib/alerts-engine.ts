@@ -7,8 +7,8 @@ export interface EventCtx {
   now: Date;
   rules: RulesConfig;
   hours: { start_hour: number; end_hour: number };
-  /** average invoice amount per salesman over the last 30 days */
-  avgBySalesman: Map<number, number>;
+  /** amounts of EARLIER posted invoices (look-back window): to this same customer by this same salesman, and to this customer by anyone */
+  amountHistory(row: SalesRow): Promise<{ pair: number[]; customer: number[] }>;
   originalInvoiceDate(odooId: number): Promise<string | null>;
   creditNotesOnDay(salesmanId: number, day: string): Promise<number>;
   /** the OTHER identical invoices (same salesman, customer and amount) created shortly before this one */
@@ -42,6 +42,34 @@ const quarterEnd = (day: string) => {
   const qEndMonth = Math.floor((m - 1) / 3) * 3 + 3;
   return new Date(Date.UTC(y, qEndMonth, 0)); // last day of the quarter
 };
+
+const median = (xs: number[]) => {
+  const a = [...xs].sort((x, y) => x - y);
+  const m = a.length >> 1;
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+};
+export interface UnusualVerdict { reason: "above_pair" | "above_customer" | "no_history"; usual: number; n: number; ratio: number }
+
+/**
+ * Is this invoice (already known to be >= the minimum amount) unusual for THIS customer?
+ *  1. what this salesman usually invoices this customer (needs >= min_history earlier invoices);
+ *  2. otherwise what this customer usually orders from anyone;
+ *  3. otherwise there is no usual order on record (new or rare customer): flag it.
+ * "Unusual" = more than `multiplier` x the usual (median) amount.
+ */
+export function judgeUnusual(amount: number, pair: number[], customer: number[], cfg: { [k: string]: unknown }): UnusualVerdict | null {
+  const mult = Number(cfg.multiplier ?? 3);
+  const minN = Number(cfg.min_history ?? 3);
+  if (pair.length >= minN) {
+    const usual = median(pair);
+    return amount > usual * mult ? { reason: "above_pair", usual, n: pair.length, ratio: usual > 0 ? amount / usual : Infinity } : null;
+  }
+  if (customer.length >= minN) {
+    const usual = median(customer);
+    return amount > usual * mult ? { reason: "above_customer", usual, n: customer.length, ratio: usual > 0 ? amount / usual : Infinity } : null;
+  }
+  return { reason: "no_history", usual: 0, n: Math.max(pair.length, customer.length), ratio: 0 };
+}
 
 export async function evaluateInvoiceEvent(ev: InvoiceEvent, ctx: EventCtx): Promise<AlertDraft[]> {
   const { row, prev } = ev;
@@ -110,10 +138,18 @@ export async function evaluateInvoiceEvent(ev: InvoiceEvent, ctx: EventCtx): Pro
       const h = riyadhParts(new Date(created)).hour;
       if (h < ctx.hours.start_hour || h >= ctx.hours.end_hour) out.push(base("off_hours", R.off_hours, row, `Invoice ${num} created at ${String(h).padStart(2, "0")}:00 (outside working hours)`, { hour: h }));
     }
-    if (on("unusual_amount") && row.salesman_id != null) {
-      const avg = ctx.avgBySalesman.get(row.salesman_id);
-      if (avg && row.amount_total >= Number(R.unusual_amount.min_amount) && row.amount_total > avg * Number(R.unusual_amount.multiplier)) {
-        out.push(base("unusual_amount", R.unusual_amount, row, `${who}: invoice ${num} of SAR ${money(row.amount_total)} is ${(row.amount_total / avg).toFixed(1)}x their average`, { average: Math.round(avg * 100) / 100 }));
+    if (on("unusual_amount") && row.amount_total >= Number(R.unusual_amount.min_amount)) {
+      const hist = await ctx.amountHistory(row);
+      const v = judgeUnusual(row.amount_total, hist.pair, hist.customer, R.unusual_amount);
+      if (v) {
+        const cust = row.customer_name ?? "this customer";
+        const title =
+          v.reason === "no_history"
+            ? `${who}: invoice ${num} of SAR ${money(row.amount_total)} to ${cust} - no usual orders on record for this customer`
+            : v.reason === "above_pair"
+              ? `${who}: invoice ${num} of SAR ${money(row.amount_total)} is ${v.ratio.toFixed(1)}x what ${who} usually invoices ${cust} (usual SAR ${money(v.usual)})`
+              : `${who}: invoice ${num} of SAR ${money(row.amount_total)} is ${v.ratio.toFixed(1)}x ${cust}'s usual order (usual SAR ${money(v.usual)})`;
+        out.push(base("unusual_amount", R.unusual_amount, row, title, { reason_code: v.reason, usual_amount: v.usual, usual_count: v.n, ratio: Math.round(v.ratio * 10) / 10 }));
       }
     }
     if (on("duplicate_burst")) {

@@ -79,6 +79,19 @@ function AlertCard({ a, label, onOpen }: { a: AlertRow; label: string; onOpen: (
           )}
         </p>
       ) : null}
+      {a.rule_key === "unusual_amount" ? (
+        <p className="rounded-md bg-muted/60 p-2 text-xs">
+          <span className="text-muted-foreground">{t("alerts.usual")}: </span>
+          {Number(a.detail?.usual_count ?? 0) > 0 ? (
+            <>
+              {fmtMoney(Number(a.detail?.usual_amount))} {t("common.sar")} ({a.detail?.usual_count}) ·{" "}
+              {String(a.detail?.ratio)}×
+            </>
+          ) : (
+            t("alerts.noUsual")
+          )}
+        </p>
+      ) : null}
       {invoiceRefs(a).length ? (
         <ul className="space-y-0.5 rounded-md bg-muted/60 p-2" dir="ltr">
           {invoiceRefs(a).map((i) => (
@@ -139,7 +152,7 @@ export function AlertsReport({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div ref={scroller} className="min-h-0 flex-1 space-y-4 overflow-y-auto pe-1">
+      <div ref={scroller} className="min-h-0 flex-1 space-y-4 overflow-y-auto pe-1 pb-3">
         {loading || alerts === null ? (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {[0, 1, 2].map((i) => (

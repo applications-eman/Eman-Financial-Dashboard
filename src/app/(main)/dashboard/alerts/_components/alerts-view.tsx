@@ -240,15 +240,15 @@ export function AlertsView() {
   }, []);
 
   return (
-    <div className="flex h-[calc(100svh-7.5rem)] min-h-96 flex-col gap-3">
+    <div className="flex h-[calc(100svh-5.5rem)] min-h-96 flex-col gap-2">
       {/* fixed top: title, counters, filters and the totals of the filtered report */}
-      <div className="max-h-[55%] shrink-0 space-y-3 overflow-y-auto pe-1">
-        <div className="space-y-1">
-          <h1 className="text-3xl tracking-tight">{t("alerts.title")}</h1>
-          <p className="text-muted-foreground text-sm">{t("alerts.subtitle")}</p>
+      <div className="max-h-[50%] shrink-0 space-y-2 overflow-y-auto pe-1">
+        <div className="flex flex-wrap items-baseline gap-x-3">
+          <h1 className="text-2xl tracking-tight">{t("alerts.title")}</h1>
+          <p className="text-muted-foreground text-xs">{t("alerts.subtitle")}</p>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-2 sm:grid-cols-3">
           {SEVERITIES.map((s) => {
             const S = STYLE[s];
             const Icon = S.icon;
@@ -260,12 +260,12 @@ export function AlertsView() {
                 aria-pressed={severity === s}
                 onClick={() => setSeverity(severity === s ? "" : s)}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg border bg-card p-3 text-start transition hover:shadow-md",
+                  "flex items-center gap-3 rounded-lg border bg-card px-3 py-1.5 text-start transition hover:shadow-md",
                   S.tile,
                 )}
               >
-                <span className={cn("rounded-md p-2", S.chip)}>
-                  <Icon className="size-5" aria-hidden="true" />
+                <span className={cn("rounded-md p-1.5", S.chip)}>
+                  <Icon className="size-4" aria-hidden="true" />
                 </span>
                 <span>
                   <span className="block font-semibold text-2xl tabular-nums leading-none">
@@ -355,7 +355,7 @@ export function AlertsView() {
         {/* totals of exactly what the filters above are showing (each invoice / credit note counted once) */}
         {rows ? (
           <div
-            className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-lg border bg-card px-3 py-2 text-sm"
+            className="flex flex-wrap items-center gap-x-5 gap-y-1 rounded-lg border bg-card px-3 py-1.5 text-sm"
             title={t("alerts.totalsHelp")}
           >
             <span className="font-medium">{t("alerts.totals")}</span>
@@ -446,6 +446,14 @@ export function AlertsView() {
                       target.detail?.no_reason || !str(target.detail?.reason)
                         ? t("alerts.noReason")
                         : str(target.detail?.reason),
+                    )
+                  : null}
+                {target.rule_key === "unusual_amount"
+                  ? fact(
+                      t("alerts.usual"),
+                      Number(target.detail?.usual_count ?? 0) > 0
+                        ? `${fmtMoney(Number(target.detail?.usual_amount))} ${t("common.sar")} (${target.detail?.usual_count}) · ${String(target.detail?.ratio)}×`
+                        : t("alerts.noUsual"),
                     )
                   : null}
                 {fact(t("alerts.salesman"), str(target.salesman_name ?? target.detail?.salesman))}
