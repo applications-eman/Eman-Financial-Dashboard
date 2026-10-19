@@ -75,3 +75,29 @@ export function totalsOf(list: AlertRow[]): AlertTotals {
   }
   return out;
 }
+
+/** Every kind of alert the system can raise. The "Alert type" filter always lists all of them, whatever period is loaded. */
+export const RULE_KEYS = [
+  "unusual_amount",
+  "duplicate_burst",
+  "credit_any",
+  "credit_amount",
+  "credit_no_reason",
+  "credit_old_invoice",
+  "credit_period_end",
+  "credit_per_salesman_day",
+  "credit_by_office",
+  "refund_unlinked",
+  "invoice_cancelled",
+  "invoice_backdated",
+  "zero_tax_invoice",
+  "zero_tax_ratio",
+  "zatca_error",
+  "zatca_chain_gap",
+  "number_gap",
+  "unpaid_invoice",
+  "no_sales_by_time",
+  "sales_drop",
+  "tiny_invoice",
+  "off_hours",
+] as const;

@@ -96,6 +96,14 @@ async function seed() {
     await store.insert("bakery_expenses", { seller_name: seller, vat_number: `30000000000000${i}`.slice(-15), invoice_date: new Date(now - (i + 1) * 86400_000).toISOString(), total_amount: total, vat_amount: vat, category, source: "ios_shortcut", submitted_by: "Ali Staff", status: "new", created_at: new Date(now - i * 3600_000).toISOString() });
     i++;
   }
+  // alerts: today's are only 2 types / 1 salesman; older ones cover many types, salesmen and customers
+  const types = ["unusual_amount", "duplicate_burst", "credit_any", "zatca_error", "number_gap", "invoice_backdated"];
+  const people = ["ANAS-OP-3-RAWABI", "Khalid Salesman", "Omar Van", "Sami Route"];
+  for (let n = 0; n < 40; n++) {
+    const at = new Date(now - (n < 3 ? 0 : (2 + n) * 86400_000)).toISOString();
+    const rule = n < 3 ? types[n % 2] : types[n % types.length];
+    await store.insert("alerts", { rule_key: rule, severity: n % 3 === 0 ? "critical" : "warning", title: `Alert ${n}`, section: "bakery", salesman_name: n < 3 ? people[0] : people[n % 4], odoo_id: 1000 + n, amount: 100 + n, status: "open", fingerprint: `e2e:${n}`, detail: { number: `INV/2026/${n}`, kind: "invoice", customer: n < 3 ? "MATHAAM ABDUL AZEEZ" : `Customer ${String.fromCharCode(65 + (n % 12))}`, issued_at: at, segment: "B2B" }, created_at: at });
+  }
   writeFileSync(new URL("./staff-token.txt", import.meta.url), staff.token);
 }
 
@@ -180,6 +188,12 @@ const server = createServer(async (req, res) => {
     const order = url.searchParams.get("order")?.split(".");
     let { rows } = await store.select(table, { filters, order: order ? [order[0], order[1] as "asc" | "desc"] : undefined });
     rows = rows.filter((r) => special.every((f) => f(r)));
+    // select aliases such as "customer:detail->>customer"
+    const sel = url.searchParams.get("select") ?? "*";
+    if (sel.includes("->>")) {
+      const cols = sel.split(",").map((c) => { const [alias, expr] = c.includes(":") ? c.split(":") : [c, c]; const [col, key] = expr.split("->>"); return { alias, col, key }; });
+      rows = rows.map((r) => Object.fromEntries(cols.map((c) => [c.alias, c.key ? (r[c.col] ?? {})[c.key] ?? null : r[c.col]])));
+    }
     const total = rows.length;
     const off = Number(url.searchParams.get("offset") ?? 0);
     const lim = Number(url.searchParams.get("limit") ?? total);

@@ -237,6 +237,31 @@ try {
     const pre = await fetch(`${API}/admin/users`, { method: "OPTIONS", headers: { origin: "https://evil.example", "access-control-request-method": "GET" } });
     expect(pre.headers.get("access-control-allow-origin") !== "https://evil.example", "CORS leaked");
   });
+  await step("ALERTS: type/salesman/customer drop-downs are complete on 'Today' and their search works", async () => {
+    await page.goto(`${DASH}/dashboard/alerts`);
+    await page.getByText("INV/2026/0").first().waitFor({ timeout: 15000 }).catch(async (e) => {
+      console.log("PAGE TEXT:", (await page.locator("body").innerText()).slice(0, 600));
+      throw e;
+    });
+    await page.getByRole("button", { name: "Today", exact: true }).click();
+    await page.waitForTimeout(800);
+    // alert type drop-down lists ALL kinds although only 2 kinds exist today
+    await page.getByRole("combobox", { name: "Alert type" }).first().click();
+    const n = await page.getByRole("option").count();
+    expect(n >= 20, `alert type list has only ${n} options`);
+    await page.keyboard.press("Escape");
+    // salesman search: older salesmen are listed and searchable while Today is selected
+    await page.getByRole("button", { name: "Salesman", exact: true }).click();
+    await page.locator("[cmdk-input]").fill("omar");
+    expect((await page.getByRole("option").count()) === 1, "search 'omar' should leave one salesman");
+    await page.getByRole("option", { name: "Omar Van" }).click();
+    await page.waitForTimeout(300);
+    await page.getByRole("button", { name: "Customer", exact: true }).click();
+    await page.locator("[cmdk-input]").fill("customer b");
+    expect((await page.getByRole("option").count()) >= 1, "customer search found nothing");
+    await page.keyboard.press("Escape");
+    await page.screenshot({ path: `${SHOTS}/alerts-filters.png` });
+  });
   await step("no unexpected browser console errors", async () => {
     const real = consoleErrors.filter((e) => !/favicon|Failed to load resource.*(401|403|400|422)|net::ERR/.test(e));
     expect(real.length === 0, real.slice(0, 3).join(" | "));

@@ -257,6 +257,7 @@ test("unusual amount: the daily behaviour of ONE salesman towards ONE customer",
   const v = judgeUnusual(500, usual, cfg)!;
   assert.equal(v.reason, "above_usual");
   assert.equal(v.highest, 125);
+  assert.ok(v.z >= 3.5);
   // ...and after it, days between the usual and that big day (200, 300) are NOT flagged
   const afterSpike = [...usual, 500, 100, 110];
   assert.equal(judgeUnusual(250, afterSpike, cfg), null);
@@ -292,4 +293,33 @@ test("unusual amount works per day and updates one alert when more invoices arri
   assert.equal(unusual().length, 1);
   assert.equal(unusual()[0].detail.day_total, 655);
   assert.equal(unusual()[0].detail.day_invoices, 3);
+});
+
+test("unusual amount is not blinded by an old outlier, and has salesman-level and ceiling layers", async () => {
+  // the real case: a customer with ~100/day, one 1,299 day and one 13,400 day long ago; today 2,048.81 must still be flagged
+  const hist = [100, 95, 110, 105, 98, 120, 1299.5, 100, 13400.38, 102, 99, 101];
+  const v = judgeUnusual(2048.81, hist, {})!;
+  assert.equal(v.reason, "above_usual");
+  assert.ok(v.ratio > 15);
+  // a normal-ish day is still fine
+  assert.equal(judgeUnusual(180, hist, {}), null);
+  const { judgeSalesmanLevel } = await import("../lib/alerts-engine.ts");
+  assert.equal(judgeSalesmanLevel(1518, { median: 124.2, count: 400 }, {}), true);
+  assert.equal(judgeSalesmanLevel(900, { median: 124.2, count: 400 }, {}), false); // below the SAR 1,000 floor
+  assert.equal(judgeSalesmanLevel(1200, { median: 600, count: 400 }, {}), false); // not 3x this salesman's typical
+  assert.equal(judgeSalesmanLevel(5000, { median: 100, count: 3 }, {}), false); // too little salesman history
+});
+
+test("a big invoice to a customer with a big history is still caught by the salesman layer and the ceiling", async () => {
+  const s = mem();
+  const mk = (id: number, partner: number, amt: number, date: string, t: string) => mv(id, { partner_id: [partner, `Cust ${partner}`], invoice_date: date, amount_total: amt, amount_untaxed: amt / 1.15, amount_tax: amt - amt / 1.15, create_date: `${date} ${t}`, write_date: `${date} ${t}` });
+  // the salesman's usual invoices to many customers (~120), and this customer has a huge old day (13,400)
+  const hist = Array.from({ length: 12 }, (_, i) => mk(i + 1, 100 + i, 120, "2026-10-08", `08:${10 + i}:00`));
+  hist.push(mk(30, 700, 13400, "2026-09-17", "08:00:00"), mk(31, 700, 100, "2026-10-01", "08:00:00"), mk(32, 700, 100, "2026-10-02", "08:00:00"), mk(33, 700, 100, "2026-10-03", "08:00:00"));
+  await runSyncCycle(s, fakeOdoo(hist), base);
+  await runSyncCycle(s, fakeOdoo([...hist, mk(40, 700, 1518, "2026-10-15", "08:52:00")]), base);
+  const a = (s.tables.alerts ?? []).filter((x) => x.rule_key === "unusual_amount" && x.odoo_id === 40);
+  assert.equal(a.length, 1);
+  assert.equal(a[0].severity, "critical");
+  assert.ok(a[0].detail.reasons.includes("above_usual"));
 });

@@ -90,7 +90,7 @@ function AlertCard({ a, label, onOpen }: { a: AlertRow; label: string; onOpen: (
           </p>
           <p>
             <span className="text-muted-foreground">{t("alerts.usualDay")}: </span>
-            {Number(a.detail?.usual_count ?? 0) > 0
+            {a.detail?.usual_amount != null && Number(a.detail?.usual_count ?? 0) > 0
               ? t("alerts.usualDayValue", {
                   usual: fmtMoney(Number(a.detail?.usual_amount)),
                   highest: fmtMoney(Number(a.detail?.usual_highest)),
@@ -98,6 +98,13 @@ function AlertCard({ a, label, onOpen }: { a: AlertRow; label: string; onOpen: (
                 })
               : t("alerts.noUsual")}
           </p>
+          {a.detail?.salesman_usual != null ? (
+            <p>
+              <span className="text-muted-foreground">{t("alerts.salesmanUsual")}: </span>
+              {fmtMoney(Number(a.detail.salesman_usual))} {t("common.sar")}
+              {a.detail?.salesman_ratio != null ? ` (×${Number(a.detail.salesman_ratio)})` : ""}
+            </p>
+          ) : null}
         </div>
       ) : null}
       {invoiceRefs(a).length ? (

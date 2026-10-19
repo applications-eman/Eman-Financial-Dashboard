@@ -112,6 +112,15 @@ async function buildEventCtx(store: Store, rows: SalesRow[], now: Date): Promise
       }
       return { days: [...perDay.values()], todayOthers, todayCount };
     },
+    salesmanTypical: async (row) => {
+      if (row.salesman_id == null) return { median: 0, count: 0 };
+      const day = row.invoice_date ?? (row.odoo_created_at ?? now.toISOString()).slice(0, 10);
+      const since = new Date(Date.parse(`${day}T00:00:00Z`) - 30 * 86_400_000).toISOString().slice(0, 10);
+      const { rows: h } = await store.select("sales_invoices", { columns: "amount_total", filters: [["salesman_id", "eq", row.salesman_id], ["kind", "eq", "invoice"], ["state", "eq", "posted"], ["odoo_id", "neq", row.odoo_id], ["invoice_date", "gte", since], ["invoice_date", "lte", day]], order: ["invoice_date", "desc"], limit: 1000 });
+      const v = h.map((r) => Number(r.amount_total)).sort((a, b) => a - b);
+      const m = v.length >> 1;
+      return { median: v.length ? (v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2) : 0, count: v.length };
+    },
     originalInvoiceDate: async (id) => (await store.select("sales_invoices", { columns: "invoice_date", filters: [["odoo_id", "eq", id]], limit: 1 })).rows[0]?.invoice_date ?? null,
     creditNotesOnDay: async (sid, day) => (await store.select("sales_invoices", { columns: "odoo_id", filters: [["salesman_id", "eq", sid], ["kind", "eq", "credit_note"], ["state", "eq", "posted"], ["invoice_date", "eq", day]], limit: 1 })).count,
     similarInvoices: async (row, minutes) => {

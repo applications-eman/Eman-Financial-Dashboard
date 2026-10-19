@@ -32,7 +32,7 @@ export const revenueEn = {
   "alerts.help.duplicate_burst": "Several identical invoices to the same customer within minutes.",
   "alerts.rule.unusual_amount": "Unusually large amount",
   "alerts.help.unusual_amount":
-    "The salesman invoiced this customer much more than usual that day (SAR 500 or more in the day): well above a normal day, as big as the biggest day of the last 90 days or bigger, and such days hardly ever happened. Also shown when there is no usual pattern yet.",
+    "Flagged when ANY of these holds: (1) the salesman invoiced this customer far above a normal day (SAR 500+ in the day, well above the usual day of the last 90 days, and such days rarely happened); (2) one invoice is 3x or more this salesman's typical invoice (SAR 1,000+); (3) one invoice is SAR 10,000 or more. Also shown when there is no usual pattern yet.",
   "alerts.rule.off_hours": "Outside working hours",
   "alerts.help.off_hours": "Created at an unusual time of day.",
   "alerts.rule.sales_drop": "Sales drop",
@@ -79,6 +79,7 @@ export const revenueEn = {
   "alerts.issued": "Invoice issued",
   "alerts.dayTotal": "Total invoiced that day",
   "alerts.dayInvoices": "{n} invoices",
+  "alerts.salesmanUsual": "This salesman's typical invoice",
   "alerts.usualDay": "A usual day with this customer",
   "alerts.usualDayValue": "about {usual} SAR (highest {highest}, over {n} days)",
   "alerts.usual": "This salesman usually invoices them up to",
@@ -263,7 +264,7 @@ export const revenueAr: Record<keyof typeof revenueEn, string> = {
   "alerts.help.duplicate_burst": "عدة فواتير متطابقة لنفس العميل خلال دقائق.",
   "alerts.rule.unusual_amount": "مبلغ كبير غير معتاد",
   "alerts.help.unusual_amount":
-    "فوتر المندوب هذا العميل في ذلك اليوم أكثر بكثير من المعتاد (500 ريال فأكثر في اليوم): أعلى بوضوح من اليوم العادي وبحجم أكبر يوم في آخر 90 يوماً أو أكثر، وقلّما حدثت أيام كهذه. يظهر أيضاً عند عدم وجود نمط معتاد بعد.",
+    "يظهر عند تحقق أي مما يلي: (1) فوتر المندوب هذا العميل في اليوم بأكثر بكثير من المعتاد (500 ريال فأكثر وأعلى بوضوح من اليوم العادي في آخر 90 يوماً وقلّما حدثت أيام كهذه)؛ (2) فاتورة واحدة تساوي 3 أضعاف فاتورة هذا المندوب المعتادة أو أكثر (1000 ريال فأكثر)؛ (3) فاتورة واحدة 10,000 ريال فأكثر. يظهر أيضاً عند عدم وجود نمط معتاد بعد.",
   "alerts.rule.off_hours": "خارج ساعات العمل",
   "alerts.help.off_hours": "أُنشئت في وقت غير معتاد.",
   "alerts.rule.sales_drop": "انخفاض المبيعات",
@@ -310,6 +311,7 @@ export const revenueAr: Record<keyof typeof revenueEn, string> = {
   "alerts.issued": "وقت إصدار الفاتورة",
   "alerts.dayTotal": "إجمالي الفوترة في ذلك اليوم",
   "alerts.dayInvoices": "{n} فواتير",
+  "alerts.salesmanUsual": "الفاتورة المعتادة لهذا البائع",
   "alerts.usualDay": "اليوم المعتاد مع هذا العميل",
   "alerts.usualDayValue": "حوالي {usual} ر.س (الأعلى {highest}، خلال {n} يوماً)",
   "alerts.usual": "المعتاد أن يفوتر لهذا العميل حتى",

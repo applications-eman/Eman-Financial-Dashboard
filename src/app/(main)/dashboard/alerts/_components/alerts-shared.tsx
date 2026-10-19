@@ -2,7 +2,7 @@ import { cn } from "cn";
 import { AlertTriangle, Info, ShieldAlert } from "lucide-react";
 
 export type { AlertRow, AlertTotals, InvoiceRef, Severity, Status } from "./alerts-types";
-export { invoiceRefs, isCredit, str, totalsOf } from "./alerts-types";
+export { invoiceRefs, isCredit, RULE_KEYS, str, totalsOf } from "./alerts-types";
 
 import type { Severity } from "./alerts-types";
 

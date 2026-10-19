@@ -34,6 +34,7 @@ import {
   fact,
   invoiceRefs,
   isCredit,
+  RULE_KEYS,
   SEVERITIES,
   type Severity,
   STYLE,
@@ -62,6 +63,27 @@ export function AlertsView() {
   const [target, setTarget] = useState<AlertRow | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // every salesman and customer that ever had an alert, for the two search drop-downs (independent of the loaded period)
+  const [facets, setFacets] = useState<{ salesmen: string[]; customers: string[] }>({ salesmen: [], customers: [] });
+  const loadFacets = useCallback(async () => {
+    const sm = new Set<string>();
+    const cu = new Set<string>();
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const { data, error: e } = await getSupabase()
+        .from("alerts")
+        .select("salesman_name,customer:detail->>customer")
+        .order("id", { ascending: true })
+        .range(page * FETCH_PAGE, page * FETCH_PAGE + FETCH_PAGE - 1);
+      if (e || !data) return;
+      for (const r of data as { salesman_name: string | null; customer: string | null }[]) {
+        if (r.salesman_name) sm.add(r.salesman_name);
+        if (r.customer) cu.add(r.customer);
+      }
+      if (data.length < FETCH_PAGE) break;
+    }
+    setFacets({ salesmen: [...sm], customers: [...cu] });
+  }, []);
 
   const load = useCallback(async () => {
     // an alert is always raised after its invoice, so this safely loads a superset; the exact day filter is applied on the invoice time below
@@ -100,6 +122,9 @@ export function AlertsView() {
     setRows(null);
     void load();
   }, [load]);
+  useEffect(() => {
+    void loadFacets();
+  }, [loadFacets]);
 
   // Realtime: new alerts appear without refreshing
   useEffect(() => {
@@ -110,14 +135,17 @@ export function AlertsView() {
       .channel("alerts-live")
       .on("postgres_changes", { event: "*", schema: "public", table: "alerts" }, () => {
         clearTimeout(timer);
-        timer = setTimeout(() => void load(), 800);
+        timer = setTimeout(() => {
+          void load();
+          void loadFacets();
+        }, 800);
       })
       .subscribe();
     return () => {
       clearTimeout(timer);
       void sb.removeChannel(ch);
     };
-  }, [load]);
+  }, [load, loadFacets]);
 
   const ruleLabel = useCallback(
     (a: AlertRow) => {
@@ -168,24 +196,35 @@ export function AlertsView() {
   }, [base]);
   const shown = severity ? base.filter((a) => a.severity === severity) : base;
 
+  // the drop-downs never depend on the period/status that is loaded: all alert types, and every salesman/customer ever alerted
   const rules = useMemo(() => {
     const map = new Map<string, string>();
+    const label = (k: string) => {
+      const l = t(`alerts.rule.${k}` as MessageKey);
+      return l.startsWith("alerts.rule.") ? k : l;
+    };
+    for (const k of RULE_KEYS) map.set(k, label(k));
     for (const a of rows ?? []) if (!map.has(a.rule_key)) map.set(a.rule_key, ruleLabel(a));
     return [...map].map(([value, label]) => ({ value, label })).sort((x, y) => x.label.localeCompare(y.label));
-  }, [rows, ruleLabel]);
+  }, [rows, ruleLabel, t]);
   const salesmen = useMemo(
     () =>
-      [...new Set((rows ?? []).map((a) => a.salesman_name).filter((x): x is string => Boolean(x)))]
-        .sort()
+      [
+        ...new Set([
+          ...facets.salesmen,
+          ...(rows ?? []).map((a) => a.salesman_name).filter((x): x is string => Boolean(x)),
+        ]),
+      ]
+        .sort((x, y) => x.localeCompare(y))
         .map((s) => ({ value: s, label: s })),
-    [rows],
+    [rows, facets.salesmen],
   );
   const customers = useMemo(
     () =>
-      [...new Set((rows ?? []).map((a) => str(a.detail?.customer)).filter(Boolean))]
-        .sort()
+      [...new Set([...facets.customers, ...(rows ?? []).map((a) => str(a.detail?.customer)).filter(Boolean)])]
+        .sort((x, y) => x.localeCompare(y))
         .map((c) => ({ value: c, label: c })),
-    [rows],
+    [rows, facets.customers],
   );
   const [page, setPage] = useState(1);
   const filtered = severity !== "" || rule !== "" || salesman !== "" || customer !== "" || query !== "";
@@ -457,13 +496,19 @@ export function AlertsView() {
                 {target.rule_key === "unusual_amount"
                   ? fact(
                       t("alerts.usualDay"),
-                      Number(target.detail?.usual_count ?? 0) > 0
+                      target.detail?.usual_amount != null && Number(target.detail?.usual_count ?? 0) > 0
                         ? t("alerts.usualDayValue", {
                             usual: fmtMoney(Number(target.detail?.usual_amount)),
                             highest: fmtMoney(Number(target.detail?.usual_highest)),
                             n: Number(target.detail?.usual_count),
                           })
                         : t("alerts.noUsual"),
+                    )
+                  : null}
+                {target.rule_key === "unusual_amount" && target.detail?.salesman_usual != null
+                  ? fact(
+                      t("alerts.salesmanUsual"),
+                      `${fmtMoney(Number(target.detail.salesman_usual))} ${t("common.sar")}`,
                     )
                   : null}
                 {fact(t("alerts.salesman"), str(target.salesman_name ?? target.detail?.salesman))}

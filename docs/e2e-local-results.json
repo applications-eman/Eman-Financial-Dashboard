@@ -1,41 +1,41 @@
 {
-  "at": "2026-10-15T03:39:17.182Z",
+  "at": "2026-10-19T11:23:57.774Z",
   "results": [
     {
       "name": "health check route is public",
       "ok": true,
-      "ms": 18,
+      "ms": 9,
       "detail": ""
     },
     {
       "name": "anonymous request is redirected to /auth/login",
       "ok": true,
-      "ms": 13,
+      "ms": 5,
       "detail": ""
     },
     {
       "name": "wrong password is rejected",
       "ok": true,
-      "ms": 951,
+      "ms": 430,
       "detail": ""
     },
     {
       "name": "admin signs in and lands on the live dashboard",
       "ok": true,
-      "ms": 1316,
+      "ms": 566,
       "detail": ""
     },
     {
       "name": "KPI cards show seeded data per section",
       "ok": true,
-      "ms": 534,
+      "ms": 264,
       "detail": ""
     },
     {
       "name": "REALTIME: iOS Shortcut POST appears on the dashboard (toast + feed)",
       "ok": true,
-      "ms": 535,
-      "detail": "535 ms from POST to visible"
+      "ms": 312,
+      "detail": "312 ms from POST to visible"
     },
     {
       "name": "duplicate post is reported and not inserted twice",
@@ -46,79 +46,85 @@
     {
       "name": "bakery expenses table lists rows with badges; inline status edit goes through the admin API",
       "ok": true,
-      "ms": 2390,
+      "ms": 1684,
       "detail": ""
     },
     {
       "name": "filter by supplier narrows the table",
       "ok": true,
-      "ms": 889,
+      "ms": 875,
       "detail": ""
     },
     {
       "name": "users: generate Shortcut token is shown once",
       "ok": true,
-      "ms": 2316,
+      "ms": 996,
       "detail": ""
     },
     {
       "name": "settings: edit vat_rate via the data-driven editor; invalid value is rejected by the API",
       "ok": true,
-      "ms": 493,
+      "ms": 458,
       "detail": ""
     },
     {
       "name": "feature flags: switching ios_shortcut off blocks the endpoint, on restores it",
       "ok": true,
-      "ms": 1720,
+      "ms": 1674,
       "detail": ""
     },
     {
       "name": "categories: add a category",
       "ok": true,
-      "ms": 324,
+      "ms": 326,
       "detail": ""
     },
     {
       "name": "audit log shows actor for the admin's changes",
       "ok": true,
-      "ms": 506,
+      "ms": 444,
       "detail": ""
     },
     {
       "name": "exports: CSV download via the admin API",
       "ok": true,
-      "ms": 324,
+      "ms": 281,
       "detail": ""
     },
     {
       "name": "Arabic + RTL switch",
       "ok": true,
-      "ms": 1467,
+      "ms": 945,
       "detail": ""
     },
     {
       "name": "mobile viewport has no horizontal page scroll",
       "ok": true,
-      "ms": 1125,
+      "ms": 1051,
       "detail": ""
     },
     {
       "name": "dark mode toggles",
       "ok": true,
-      "ms": 1330,
+      "ms": 840,
       "detail": ""
     },
     {
       "name": "non-admin (staff) is sent to the Not authorized page",
       "ok": true,
-      "ms": 1044,
+      "ms": 674,
       "detail": ""
     },
     {
       "name": "admin API refuses a staff JWT and cross-origin callers",
       "ok": true,
-      "ms": 17,
+      "ms": 14,
+      "detail": ""
+    },
+    {
+      "name": "ALERTS: type/salesman/customer drop-downs are complete on 'Today' and their search works",
+      "ok": true,
+      "ms": 1998,
       "detail": ""
     },
     {
