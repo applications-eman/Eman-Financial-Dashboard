@@ -139,7 +139,7 @@
             "text": "${data.cart_text}"
           },
           {
-            "type": "RadioButtonsGroup",
+            "type": "Dropdown",
             "label": "Category",
             "name": "category",
             "required": false,
@@ -153,7 +153,7 @@
             }
           },
           {
-            "type": "Dropdown",
+            "type": "RadioButtonsGroup",
             "label": "Product",
             "name": "product",
             "required": false,

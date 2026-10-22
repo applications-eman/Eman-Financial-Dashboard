@@ -64,11 +64,14 @@ async function categoryOptions(db: Db): Promise<Opt[]> {
   return rows.map((r) => ({ id: r.id, title: cut(r.name) }));
 }
 
+/** WhatsApp shows at most 20 round ticks in one list. */
+const MAX_TICKS = 20;
+
 /** Products of a category that are not in the cart yet (a product can be on the invoice only once). */
 async function productOptions(db: Db, categoryId: string | null, inCart: string[] = []): Promise<Opt[]> {
   if (!categoryId) return [];
   const rows = await db.query<{ id: string; name: string; max_price: string }>(
-    `select id, name, max_price from products where category_id = $1 and status = 'active' and max_price is not null and odoo_product_id is not null and not (id::text = any($2::text[])) order by lower(name) limit ${MAX_OPTIONS}`,
+    `select id, name, max_price from products where category_id = $1 and status = 'active' and max_price is not null and odoo_product_id is not null and not (id::text = any($2::text[])) order by lower(name) limit ${MAX_TICKS}`,
     [categoryId, inCart],
   );
   return rows.map((r) => ({

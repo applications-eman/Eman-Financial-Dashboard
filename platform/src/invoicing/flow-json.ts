@@ -63,7 +63,7 @@ export function buildFlowJson() {
             },
             body("${data.cart_text}"),
             {
-              type: "RadioButtonsGroup",
+              type: "Dropdown",
               label: "Category",
               name: "category",
               required: false,
@@ -71,7 +71,7 @@ export function buildFlowJson() {
               "on-select-action": dataExchange({ step: "select_category", category: "${form.category}" }),
             },
             {
-              type: "Dropdown",
+              type: "RadioButtonsGroup",
               label: "Product",
               name: "product",
               required: false,
