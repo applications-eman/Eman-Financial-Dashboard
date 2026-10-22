@@ -41,6 +41,33 @@ const phoneIn = z.string().transform((s, ctx) => {
 });
 const id40 = z.string().regex(/^[a-z0-9][a-z0-9_-]{1,40}$/, "use small letters, digits, - or _ (2 to 41 characters)");
 
+/** names are trimmed and inner spaces collapsed, so "Al  Noor " and "Al Noor" are the same name */
+const nameIn = (max: number) =>
+  z
+    .string()
+    .transform((v) => v.trim().replace(/\s+/g, " "))
+    .pipe(z.string().min(1, "name is required").max(max));
+/** Saudi VAT number: 15 digits, starting and ending with 3 (ZATCA) */
+const vatIn = z
+  .string()
+  .transform((v) => v.replace(/\s+/g, ""))
+  .pipe(z.string().regex(/^3[0-9]{13}3$/, "VAT number must be 15 digits, starting and ending with 3"));
+
+/** the same name (any capitals) must not exist twice */
+async function assertNameFree(
+  t: Db,
+  table: "customers" | "products" | "product_categories",
+  name: string,
+  label: string,
+  exceptId?: string,
+) {
+  const rows = await t.query(
+    `select 1 from ${table} where lower(name)=lower($1) and ($2::uuid is null or id<>$2) limit 1`,
+    [name, exceptId ?? null],
+  );
+  if (rows.length) throw new HttpError(409, "name_taken", `A ${label} named "${name}" already exists.`);
+}
+
 const SETTINGS: Record<string, z.ZodType> = {
   duplicate_window_minutes: z.number().int().min(1).max(1440),
   max_lines_per_invoice: z.number().int().min(1).max(100),
@@ -161,7 +188,7 @@ export function createApp(deps: AppDeps) {
       c,
       z.object({
         id: id40,
-        name: z.string().min(1).max(80),
+        name: nameIn(80),
         url: z.string().max(500),
         notes: z.string().max(500).optional(),
       }),
@@ -175,6 +202,8 @@ export function createApp(deps: AppDeps) {
     const secret = randomBytes(24).toString("hex");
     try {
       await db.tx(async (t) => {
+        const dupName = await t.query(`select 1 from wa_targets where lower(name)=lower($1) limit 1`, [b.name]);
+        if (dupName.length) throw new HttpError(409, "name_taken", `A service named "${b.name}" already exists.`);
         await t.query(`insert into wa_targets (id, name, url, secret, notes) values ($1,$2,$3,$4,$5)`, [
           b.id,
           b.name,
@@ -198,7 +227,7 @@ export function createApp(deps: AppDeps) {
     const b = await body(
       c,
       z.object({
-        name: z.string().min(1).max(80).optional(),
+        name: nameIn(80).optional(),
         url: z.string().max(500).optional(),
         enabled: z.boolean().optional(),
         notes: z.string().max(500).nullable().optional(),
@@ -378,7 +407,7 @@ export function createApp(deps: AppDeps) {
       c,
       z.object({
         code: z.string().regex(/^[A-Z0-9][A-Z0-9_-]{1,30}$/, "use capital letters, digits, - or _"),
-        name: z.string().min(1).max(80),
+        name: nameIn(80),
         phone: phoneIn,
         language: z.enum(["en", "ml"]).default("en"),
         daily_limit: z.number().int().positive().nullable().optional(),
@@ -429,7 +458,7 @@ export function createApp(deps: AppDeps) {
     const b = await body(
       c,
       z.object({
-        name: z.string().min(1).max(80).optional(),
+        name: nameIn(80).optional(),
         language: z.enum(["en", "ml"]).optional(),
         daily_limit: z.number().int().positive().nullable().optional(),
       }),
@@ -536,17 +565,19 @@ export function createApp(deps: AppDeps) {
     const b = await body(
       c,
       z.object({
-        name: z.string().min(1).max(200),
-        vat: z
-          .string()
-          .regex(/^[0-9]{15}$/, "VAT number must be 15 digits")
-          .nullable()
-          .optional(),
+        name: nameIn(200),
+        vat: vatIn.nullable().optional(),
         odoo_partner_id: z.number().int().positive().nullable().optional(),
       }),
     );
     try {
       const out = await db.tx(async (t) => {
+        await assertNameFree(t, "customers", b.name, "customer");
+        if (b.vat) {
+          const dup = await t.query(`select name from customers where vat=$1 limit 1`, [b.vat]);
+          if (dup.length)
+            throw new HttpError(409, "vat_taken", `The customer "${dup[0].name}" already has this VAT number.`);
+        }
         const [row] = await t.query(
           `insert into customers (name, vat, odoo_partner_id) values ($1,$2,$3) returning id, name, vat, status, odoo_partner_id`,
           [b.name, b.vat ?? null, b.odoo_partner_id ?? null],
@@ -567,18 +598,20 @@ export function createApp(deps: AppDeps) {
     const b = await body(
       c,
       z.object({
-        name: z.string().min(1).max(200).optional(),
-        vat: z
-          .string()
-          .regex(/^[0-9]{15}$/, "VAT number must be 15 digits")
-          .nullable()
-          .optional(),
+        name: nameIn(200).optional(),
+        vat: vatIn.nullable().optional(),
         status: z.enum(["active", "frozen"]).optional(),
       }),
     );
     const out = await db.tx(async (t) => {
       const [before] = await t.query(`select id, name, vat, status from customers where id=$1 for update`, [id]);
       if (!before) throw new HttpError(404, "not_found", "Customer not found.");
+      if (b.name) await assertNameFree(t, "customers", b.name, "customer", id);
+      if (b.vat) {
+        const dup = await t.query(`select name from customers where vat=$1 and id<>$2 limit 1`, [b.vat, id]);
+        if (dup.length)
+          throw new HttpError(409, "vat_taken", `The customer "${dup[0].name}" already has this VAT number.`);
+      }
       const [after] = await t.query(
         `update customers set name=coalesce($2,name), vat=case when $3::boolean then $4 else vat end, status=coalesce($5,status) where id=$1 returning id, name, vat, status`,
         [id, b.name ?? null, b.vat !== undefined, b.vat ?? null, b.status ?? null],
@@ -587,6 +620,29 @@ export function createApp(deps: AppDeps) {
       return after;
     });
     return c.json(out);
+  });
+
+  // Delete a customer that was added by mistake. A customer with invoice history is frozen instead.
+  app.delete("/admin/customers/:id", async (c) => {
+    const actor = c.get("actor");
+    const id = uuid.parse(c.req.param("id"));
+    await db.tx(async (t) => {
+      let row: Record<string, unknown> | undefined;
+      try {
+        [row] = await t.query(`delete from customers where id=$1 returning id, name, vat`, [id]);
+      } catch (e) {
+        if (isFkViolation(e))
+          throw new HttpError(
+            409,
+            "has_history",
+            "This customer has invoice history. Switch it off (Active) instead of deleting.",
+          );
+        throw e;
+      }
+      if (!row) throw new HttpError(404, "not_found", "Customer not found.");
+      await audit(t, actor, "delete", "customer", id, row, null);
+    });
+    return c.json({ ok: true });
   });
 
   app.get("/admin/salesmen/:id/customers", async (c) =>
@@ -637,9 +693,10 @@ export function createApp(deps: AppDeps) {
 
   app.post("/admin/categories", async (c) => {
     const actor = c.get("actor");
-    const b = await body(c, z.object({ name: z.string().min(1).max(60), sort_order: z.number().int().default(0) }));
+    const b = await body(c, z.object({ name: nameIn(60), sort_order: z.number().int().default(0) }));
     try {
       const out = await db.tx(async (t) => {
+        await assertNameFree(t, "product_categories", b.name, "category");
         const [row] = await t.query(
           `insert into product_categories (name, sort_order) values ($1,$2) returning id, name, sort_order, active`,
           [b.name, b.sort_order],
@@ -660,7 +717,7 @@ export function createApp(deps: AppDeps) {
     const b = await body(
       c,
       z.object({
-        name: z.string().min(1).max(60).optional(),
+        name: nameIn(60).optional(),
         sort_order: z.number().int().optional(),
         active: z.boolean().optional(),
       }),
@@ -671,6 +728,7 @@ export function createApp(deps: AppDeps) {
         [id],
       );
       if (!before) throw new HttpError(404, "not_found", "Category not found.");
+      if (b.name) await assertNameFree(t, "product_categories", b.name, "category", id);
       const [after] = await t.query(
         `update product_categories set name=coalesce($2,name), sort_order=coalesce($3,sort_order), active=coalesce($4,active) where id=$1 returning id, name, sort_order, active`,
         [id, b.name ?? null, b.sort_order ?? null, b.active ?? null],
@@ -696,7 +754,7 @@ export function createApp(deps: AppDeps) {
     const b = await body(
       c,
       z.object({
-        name: z.string().min(1).max(120),
+        name: nameIn(120),
         category_id: uuid.nullable().optional(),
         max_price: price.nullable().optional(),
         odoo_product_id: z.number().int().positive().nullable().optional(),
@@ -704,6 +762,7 @@ export function createApp(deps: AppDeps) {
     );
     try {
       const out = await db.tx(async (t) => {
+        await assertNameFree(t, "products", b.name, "product");
         const [row] = await t.query(
           `insert into products (name, category_id, max_price, odoo_product_id) values ($1,$2,$3,$4) returning id, name, category_id, max_price, status`,
           [b.name, b.category_id ?? null, b.max_price ?? null, b.odoo_product_id ?? null],
@@ -730,7 +789,7 @@ export function createApp(deps: AppDeps) {
     const b = await body(
       c,
       z.object({
-        name: z.string().min(1).max(120).optional(),
+        name: nameIn(120).optional(),
         category_id: uuid.nullable().optional(),
         max_price: price.nullable().optional(),
         status: z.enum(["active", "frozen"]).optional(),
@@ -742,6 +801,7 @@ export function createApp(deps: AppDeps) {
         [id],
       );
       if (!before) throw new HttpError(404, "not_found", "Product not found.");
+      if (b.name) await assertNameFree(t, "products", b.name, "product", id);
       const [after] = await t.query<{ max_price: string | null }>(
         `update products set name=coalesce($2,name), category_id=case when $3::boolean then $4 else category_id end, max_price=case when $5::boolean then $6 else max_price end, status=coalesce($7,status) where id=$1 returning id, name, category_id, max_price, status`,
         [
@@ -766,6 +826,17 @@ export function createApp(deps: AppDeps) {
     return c.json(out);
   });
 
+  app.delete("/admin/products/:id", async (c) => {
+    const actor = c.get("actor");
+    const id = uuid.parse(c.req.param("id"));
+    await db.tx(async (t) => {
+      const [row] = await t.query(`delete from products where id=$1 returning id, name`, [id]);
+      if (!row) throw new HttpError(404, "not_found", "Product not found.");
+      await audit(t, actor, "delete", "product", id, row, null);
+    });
+    return c.json({ ok: true });
+  });
+
   app.get("/admin/products/:id/history", async (c) =>
     c.json(
       await db.query(
@@ -784,7 +855,7 @@ export function createApp(deps: AppDeps) {
         rows: z
           .array(
             z.object({
-              name: z.string().min(1).max(120),
+              name: nameIn(120),
               category: z.string().max(60).optional(),
               max_price: price.nullable().optional(),
             }),
@@ -800,10 +871,16 @@ export function createApp(deps: AppDeps) {
       for (const r of b.rows) {
         let categoryId: string | null = null;
         if (r.category?.trim()) {
-          const [cat] = await t.query<{ id: string }>(
-            `insert into product_categories (name) values ($1) on conflict (name) do update set name = excluded.name returning id`,
-            [r.category.trim()],
+          const catName = r.category.trim().replace(/\s+/g, " ");
+          const [found] = await t.query<{ id: string }>(
+            `select id from product_categories where lower(name)=lower($1)`,
+            [catName],
           );
+          const cat =
+            found ??
+            (
+              await t.query<{ id: string }>(`insert into product_categories (name) values ($1) returning id`, [catName])
+            )[0];
           categoryId = cat.id;
         }
         const [existing] = await t.query<{ id: string; max_price: string | null }>(

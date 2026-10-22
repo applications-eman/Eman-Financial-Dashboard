@@ -180,3 +180,40 @@ test("default service: only one at a time", async () => {
   );
   assert.equal((await call("PATCH", "/admin/targets/invoicing", { is_default: false })).json.is_default, false);
 });
+
+test("validation: no duplicate customers, products, categories or services; VAT rules; tidy names", async () => {
+  const { call } = await setup();
+  const a = await call("POST", "/admin/customers", { name: "  Al   Noor  ", vat: "300123456700003" });
+  assert.equal(a.status, 201);
+  assert.equal(a.json.name, "Al Noor", "extra spaces are removed");
+  const dupName = await call("POST", "/admin/customers", { name: "al noor" });
+  assert.equal(dupName.status, 409);
+  assert.match(dupName.json.message, /already exists/);
+  assert.equal((await call("POST", "/admin/customers", { name: "Other", vat: "300123456700003" })).status, 409); // same VAT
+  assert.equal((await call("POST", "/admin/customers", { name: "Bad VAT", vat: "123456789012345" })).status, 400); // must start and end with 3
+  assert.equal((await call("POST", "/admin/customers", { name: "Short VAT", vat: "3001234567" })).status, 400);
+  const b = (await call("POST", "/admin/customers", { name: "Baraka" })).json;
+  assert.equal((await call("PATCH", `/admin/customers/${b.id}`, { name: "AL NOOR" })).status, 409);
+  assert.equal((await call("PATCH", `/admin/customers/${b.id}`, { name: "Baraka Mart" })).status, 200);
+  assert.equal((await call("PATCH", `/admin/customers/${b.id}`, { vat: "300123456700003" })).status, 409);
+
+  assert.equal((await call("POST", "/admin/categories", { name: "Bread" })).status, 201);
+  assert.equal((await call("POST", "/admin/categories", { name: " bread " })).status, 409);
+  const p = (await call("POST", "/admin/products", { name: "Samoon", max_price: 2 })).json;
+  assert.equal((await call("POST", "/admin/products", { name: "SAMOON" })).status, 409);
+  assert.equal((await call("PATCH", `/admin/products/${p.id}`, { name: "samoon" })).status, 200); // its own name is fine
+  // bulk upload keeps one category whatever the capitals
+  await call("POST", "/admin/products/bulk", { rows: [{ name: "Chapathi", category: "BREAD", max_price: 3 }] });
+  assert.equal(((await call("GET", "/admin/categories")).json as unknown[]).length, 1);
+
+  await call("POST", "/admin/targets", { id: "expense", name: "Expense", url: "https://e.example.com/w" });
+  assert.equal(
+    (await call("POST", "/admin/targets", { id: "expense2", name: "expense", url: "https://e.example.com/w" })).status,
+    409,
+  );
+
+  // a customer added by mistake can be deleted
+  assert.equal((await call("DELETE", `/admin/customers/${b.id}`)).status, 200);
+  assert.equal((await call("DELETE", `/admin/customers/${b.id}`)).status, 404);
+  assert.equal((await call("DELETE", `/admin/products/${p.id}`)).status, 200);
+});

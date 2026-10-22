@@ -2,7 +2,7 @@
 
 import { type FormEvent, useState } from "react";
 
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -62,6 +62,9 @@ export function CustomersTab() {
               <TableHead>VAT number</TableHead>
               <TableHead>Salesmen</TableHead>
               <TableHead>Active</TableHead>
+              <TableHead className="text-end">
+                <span className="sr-only">Actions</span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -84,11 +87,28 @@ export function CustomersTab() {
                     }}
                   />
                 </TableCell>
+                <TableCell>
+                  <div className="flex justify-end">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Delete ${c.name}`}
+                      onClick={async () => {
+                        if (!confirm(`Delete the customer "${c.name}"? Only possible if it was never invoiced.`))
+                          return;
+                        await change(() => platform("DELETE", `/customers/${c.id}`), "Deleted");
+                        void load();
+                      }}
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
+                </TableCell>
               </TableRow>
             ))}
             {rows?.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="h-20 text-center text-muted-foreground">
+                <TableCell colSpan={5} className="h-20 text-center text-muted-foreground">
                   No customers found.
                 </TableCell>
               </TableRow>

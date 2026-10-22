@@ -2,7 +2,7 @@
 
 import { type FormEvent, useState } from "react";
 
-import { Plus, Upload } from "lucide-react";
+import { Plus, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -119,6 +119,18 @@ export function ProductsTab() {
                   <div className="flex justify-end">
                     <Button variant="ghost" size="sm" onClick={() => setLimit(p)}>
                       Change limit
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Delete ${p.name}`}
+                      onClick={async () => {
+                        if (!confirm(`Delete the product "${p.name}"?`)) return;
+                        await change(() => platform("DELETE", `/products/${p.id}`), "Deleted");
+                        void load();
+                      }}
+                    >
+                      <Trash2 />
                     </Button>
                   </div>
                 </TableCell>
