@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Connects Odoo and WhatsApp to the platform service (turns invoicing on) and starts the one-minute safety tick.
+# Connects Odoo and WhatsApp to the platform service (turns invoicing on), creates the invoice Flow in Meta as a DRAFT
+# with its endpoint, and starts the one-minute safety tick.
 # It does NOT change the Meta webhook, does not touch Odoo data, and asks for every secret (typing is hidden).
 #   PROJECT_ID=eman-expenses REGION=europe-west1 ./scripts/connect-invoicing.sh
 set -euo pipefail
@@ -8,6 +9,9 @@ set -euo pipefail
 REGION="${REGION:-europe-west1}"
 SERVICE="${SERVICE:-eman-platform}"
 JOB="${JOB:-eman-platform-tick}"
+GRAPH="https://graph.facebook.com/${GRAPH_VERSION:-v21.0}"
+FLOW_FILE="docs/whatsapp-invoicing/flow-live.json"
+[ -f "$FLOW_FILE" ] || { echo "Run this from the repository folder (cd ~/Eman-Financial-Dashboard)."; exit 1; }
 
 secret_exists() { gcloud secrets describe "$1" --project "$PROJECT_ID" >/dev/null 2>&1; }
 put_secret() {
@@ -16,22 +20,25 @@ put_secret() {
 }
 ask() { local v; read -rp "$1: " v; printf '%s' "$v"; }
 ask_hidden() { local v; read -rsp "$1 (typing is hidden): " v; echo >&2; printf '%s' "$v"; }
+json_get() { python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get(sys.argv[1],""))' "$1"; }
 
 gcloud services enable cloudscheduler.googleapis.com secretmanager.googleapis.com --project "$PROJECT_ID"
+URL="$(gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format 'value(status.url)')"
 
 echo "== Odoo =="
 put_secret eman-platform-odoo-url "$(ask 'Odoo address, e.g. https://yourcompany.odoo.com (no slash at the end)')"
 put_secret eman-platform-odoo-db "$(ask 'Odoo database name (usually the first part of the address)')"
-put_secret eman-platform-odoo-key "$(ask_hidden 'Odoo API key of the invoicing service user')"
-SALES_JOURNAL="$(ask 'Odoo id of the SALES journal for these invoices (press Enter to use the default sales journal; use a test journal while testing)')"
+put_secret eman-platform-odoo-key "$(ask_hidden 'Odoo API key')"
+SALES_JOURNAL="$(ask 'Odoo id of the SALES journal for these invoices (use 23 = WhatsApp Test while testing)')"
 
 echo "== WhatsApp (Meta) =="
 WA_PHONE="$(ask 'WhatsApp Phone number ID (Meta > WhatsApp > API setup)')"
 WA_TOKEN="$(ask_hidden 'WhatsApp access token of the system user')"
 put_secret eman-platform-wa-phone-id "$WA_PHONE"
 put_secret eman-platform-wa-token "$WA_TOKEN"
-put_secret eman-platform-flow-id "$(ask 'Flow ID (Meta > WhatsApp > Flows, after you created the invoice Flow)')"
 put_secret eman-platform-app-secret "$(ask_hidden 'Meta App secret (Meta app > Settings > Basic)')"
+WABA="$(ask 'WhatsApp account id (the account that owns the number)')"
+APP_ID="$(ask 'Meta app id (the app that receives your webhooks)')"
 
 echo
 echo "== Flow encryption key =="
@@ -43,7 +50,7 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 if [ "${ONLY:-n}" = "y" ] || [ "${ONLY:-n}" = "Y" ]; then
   openssl genrsa -out "$TMP/private.pem" 2048 2>/dev/null
   openssl rsa -in "$TMP/private.pem" -pubout -out "$TMP/public.pem" 2>/dev/null
-  curl -fsS -X POST "https://graph.facebook.com/v21.0/${WA_PHONE}/whatsapp_business_encryption" \
+  curl -fsS -X POST "${GRAPH}/${WA_PHONE}/whatsapp_business_encryption" \
     -H "Authorization: Bearer ${WA_TOKEN}" --data-urlencode "business_public_key@${TMP}/public.pem"
   echo; echo "New key registered with Meta for this number."
   put_secret eman-platform-flow-key "$(cat "$TMP/private.pem")"
@@ -53,6 +60,32 @@ else
   put_secret eman-platform-flow-key "$(cat "$KEYFILE")"
   PASS="$(ask_hidden 'Passphrase of that key (press Enter if it has none)')"
   if [ -n "$PASS" ]; then put_secret eman-platform-flow-key-pass "$PASS"; HAS_PASS=1; fi
+fi
+
+echo
+echo "== Invoice Flow in Meta (created as a DRAFT) =="
+ENDPOINT="${URL}/invoicing/flow"
+if secret_exists eman-platform-flow-id; then
+  FLOW_ID="$(gcloud secrets versions access latest --secret eman-platform-flow-id --project "$PROJECT_ID")"
+  read -rp "A Flow already exists (${FLOW_ID}). Update its content from this repository? [Y/n]: " UPD
+  if [ "${UPD:-y}" != "n" ] && [ "${UPD:-y}" != "N" ]; then
+    RESP="$(curl -sS -X POST "${GRAPH}/${FLOW_ID}/assets" -H "Authorization: Bearer ${WA_TOKEN}" \
+      --form "file=@${FLOW_FILE};type=application/json" --form 'name=flow.json' --form 'asset_type=FLOW_JSON')"
+    echo "$RESP" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("Meta answer:", json.dumps(d.get("validation_errors") or d, indent=2))'
+  fi
+else
+  BODY="$(FLOW_FILE="$FLOW_FILE" ENDPOINT="$ENDPOINT" python3 -c '
+import json, os
+print(json.dumps({"name": "Eman Invoice", "categories": ["OTHER"], "endpoint_uri": os.environ["ENDPOINT"],
+                  "flow_json": json.dumps(json.load(open(os.environ["FLOW_FILE"])))}))')"
+  RESP="$(printf '%s' "$BODY" | curl -sS -X POST "${GRAPH}/${WABA}/flows" -H "Authorization: Bearer ${WA_TOKEN}" -H "Content-Type: application/json" --data @-)"
+  FLOW_ID="$(printf '%s' "$RESP" | json_get id)"
+  if [ -z "$FLOW_ID" ]; then echo "Meta did not create the Flow. Its answer:"; echo "$RESP"; exit 1; fi
+  echo "Flow created: ${FLOW_ID}"
+  printf '%s' "$RESP" | python3 -c 'import json,sys; d=json.load(sys.stdin); e=d.get("validation_errors") or []; print("Validation errors from Meta:", json.dumps(e, indent=2) if e else "none")'
+  curl -sS -X POST "${GRAPH}/${FLOW_ID}" -H "Authorization: Bearer ${WA_TOKEN}" -H "Content-Type: application/json" \
+    --data "{\"endpoint_uri\":\"${ENDPOINT}\",\"application_id\":\"${APP_ID}\"}" ; echo
+  put_secret eman-platform-flow-id "$FLOW_ID"
 fi
 
 put_secret eman-platform-tick-secret "$(openssl rand -hex 24)"
@@ -70,7 +103,6 @@ gcloud run services update "$SERVICE" --project "$PROJECT_ID" --region "$REGION"
   --update-secrets "ODOO_URL=eman-platform-odoo-url:latest,ODOO_DB=eman-platform-odoo-db:latest,ODOO_API_KEY=eman-platform-odoo-key:latest,WA_PHONE_NUMBER_ID=eman-platform-wa-phone-id:latest,WA_TOKEN=eman-platform-wa-token:latest,FLOW_ID=eman-platform-flow-id:latest,META_APP_SECRET=eman-platform-app-secret:latest,FLOW_PRIVATE_KEY=eman-platform-flow-key:latest,TICK_SECRET=eman-platform-tick-secret:latest${HAS_PASS:+,FLOW_PRIVATE_KEY_PASSPHRASE=eman-platform-flow-key-pass:latest}" \
   --update-env-vars "FLOW_MODE=${FLOW_MODE:-draft},ODOO_SALES_JOURNAL_ID=${SALES_JOURNAL}"
 
-URL="$(gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format 'value(status.url)')"
 TICK="$(gcloud secrets versions access latest --secret eman-platform-tick-secret --project "$PROJECT_ID")"
 if gcloud scheduler jobs describe "$JOB" --location "$REGION" --project "$PROJECT_ID" >/dev/null 2>&1; then VERB=update; else VERB=create; fi
 gcloud scheduler jobs "$VERB" http "$JOB" --location "$REGION" --project "$PROJECT_ID" \
@@ -78,5 +110,5 @@ gcloud scheduler jobs "$VERB" http "$JOB" --location "$REGION" --project "$PROJE
 
 echo
 echo "Invoicing is connected (Flow mode: ${FLOW_MODE:-draft}). Nothing in Meta's webhook was changed."
-echo "Flow endpoint address for Meta:   ${URL}/invoicing/flow"
+echo "Flow ID: ${FLOW_ID}   Flow endpoint: ${ENDPOINT}"
 echo "Router address for the service:   ${URL}/invoicing/webhook"

@@ -11,10 +11,10 @@ Nothing below changes the old Odoo 17 system, the expense capture, or the curren
    - Create a user for the service (not a salesman) with the right to create and post customer invoices and register payments. Create its **API key** (Persistent).
    - ZATCA: onboard the sales journal (sandbox first). Until a journal is onboarded, invoices cannot be sent to ZATCA.
 2. **Products and customers**: add them in the dashboard (WhatsApp Platform): categories, products with the maximum price, customers, salesmen and each salesman's customers. Then Settings > *Link customers and products to Odoo*.
-3. **Meta**: create the invoice Flow (WhatsApp Manager > Flows > Create). Paste `flow-live.json` from this folder. Note its **Flow ID**. Keep it in draft while testing.
-4. **Connect**: Cloud Shell: `PROJECT_ID=eman-expenses REGION=europe-west1 ./scripts/connect-invoicing.sh`
-   (asks for the Odoo and WhatsApp values, hidden). It prints the **Flow endpoint address**: set it as the Flow's endpoint in Meta.
-   - Say "y" to *only for invoicing* only if the WhatsApp number has no other Flow. One number = one Flow key; a new key replaces the old one.
+3. **Odoo key**: Odoo > your avatar > Preferences > Account Security > New API Key (description "Eman platform", duration 1 Month while testing). Before the real go-live use a dedicated bot user, as Odoo recommends (it counts as one more Odoo user; ask Odoo whether API-only users are billed).
+4. **Connect** (Cloud Shell): `PROJECT_ID=eman-expenses REGION=europe-west1 ./scripts/connect-invoicing.sh`
+   It asks for the Odoo and WhatsApp values (hidden), **creates the invoice Flow in Meta as a draft with its endpoint** (Meta reports any Flow JSON error right there), and turns invoicing on.
+   - Answer "y" to *only for invoicing* only if the WhatsApp number has no other Flow. One number = one Flow key; a new key replaces the old one. With the shared number answer "n" and give the existing key file (and its passphrase).
 5. **Register the service in the router**: dashboard > WhatsApp Platform > Services & numbers: service id `invoicing`, address = the "Router address" printed in step 4.
 6. **Pilot**: add one salesman, assign customers, Activate. He sends any message to the invoicing number, taps the button, creates a small real invoice. The accounts team checks it in Odoo (and the PDF), then the dashboard Invoices tab.
 7. **Switch**: only when the pilot is good, deploy the router and point Meta's webhook at it (with the way back ready).
