@@ -58,6 +58,7 @@ if [ "${ONLY:-n}" = "y" ] || [ "${ONLY:-n}" = "Y" ]; then
   put_secret eman-platform-flow-key "$(cat "$TMP/private.pem")"
 else
   read -rp "Path to the EXISTING Flow private key file of this number: " KEYFILE
+  KEYFILE="${KEYFILE/#\~/$HOME}"   # accept ~/flowkey.pem too
   [ -f "$KEYFILE" ] || { echo "File not found: $KEYFILE"; exit 1; }
   put_secret eman-platform-flow-key "$(cat "$KEYFILE")"
   read -rsp "Passphrase of that key (press Enter if it has none; typing is hidden): " PASS; echo
