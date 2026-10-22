@@ -2,12 +2,8 @@
   "version": "6.0",
   "data_api_version": "3.0",
   "routing_model": {
-    "CUSTOMER": [
-      "ITEMS"
-    ],
-    "ITEMS": [
-      "REVIEW"
-    ],
+    "CUSTOMER": ["ITEMS"],
+    "ITEMS": ["REVIEW"],
     "REVIEW": []
   },
   "screens": [

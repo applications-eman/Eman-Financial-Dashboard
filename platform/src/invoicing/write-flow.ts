@@ -1,5 +1,5 @@
 // Writes the Flow definition to docs/whatsapp-invoicing/flow-live.json (paste/upload it in Meta's Flow builder).
-//   node src/invoicing/write-flow.ts
+//   node src/invoicing/write-flow.ts   (then: npx biome format --write docs/whatsapp-invoicing/flow-live.json)
 
 import { buildFlowJson } from "./flow-json.ts";
 import { writeFileSync } from "node:fs";
