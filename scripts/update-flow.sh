@@ -14,3 +14,7 @@ echo "Updating Flow ${FLOW_ID} ..."
 curl -sS -X POST "${GRAPH}/${FLOW_ID}/assets" -H "Authorization: Bearer ${TOKEN}" \
   --form "file=@${FLOW_FILE};type=application/json" --form 'name=flow.json' --form 'asset_type=FLOW_JSON' \
   | python3 -c 'import json,sys; d=json.load(sys.stdin); e=d.get("validation_errors"); print("Meta answer:", "OK, no Flow errors" if d.get("success") and not e else json.dumps(d, indent=2))'
+echo
+echo "Preview link (open it in any browser; it shows the screens with sample data, not your real customers):"
+curl -sS "${GRAPH}/${FLOW_ID}?fields=preview.invalidate(true)" -H "Authorization: Bearer ${TOKEN}" \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("preview") or {}).get("preview_url") or json.dumps(d, indent=2))'
