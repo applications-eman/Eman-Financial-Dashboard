@@ -6,6 +6,8 @@ export interface PublicEnv {
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
   ADMIN_API_URL: string;
+  /** platform service (WhatsApp invoicing admin); empty until it is deployed */
+  PLATFORM_API_URL: string;
 }
 
 declare global {
@@ -21,6 +23,7 @@ export function readServerPublicEnv(): PublicEnv {
     SUPABASE_URL: read("NEXT_PUBLIC_SUPABASE_URL"),
     SUPABASE_ANON_KEY: read("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
     ADMIN_API_URL: read("NEXT_PUBLIC_ADMIN_API_URL").replace(/\/$/, ""),
+    PLATFORM_API_URL: read("NEXT_PUBLIC_PLATFORM_API_URL").replace(/\/$/, ""),
   };
 }
 

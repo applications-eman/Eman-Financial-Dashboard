@@ -6,6 +6,7 @@ import {
   History,
   LayoutDashboard,
   type LucideIcon,
+  MessageCircle,
   Settings,
   ShieldCheck,
   ShoppingBasket,
@@ -91,6 +92,7 @@ export const sidebarItems: NavGroup[] = [
     groupKey: "management",
     items: [
       { id: "users", title: "Users", url: "/dashboard/users", icon: Users, roles: ["admin"] },
+      { id: "platform", title: "WhatsApp Platform", url: "/dashboard/platform", icon: MessageCircle, roles: ["admin"] },
       { id: "categories", title: "Categories", url: "/dashboard/categories", icon: Tags, roles: ["admin"] },
       { id: "settings", title: "Settings", url: "/dashboard/settings", icon: Settings, roles: ["admin"] },
       { id: "flags", title: "Feature Flags", url: "/dashboard/flags", icon: ToggleRight, roles: ["admin"] },
