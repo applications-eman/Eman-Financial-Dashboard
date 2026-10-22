@@ -43,6 +43,7 @@ const SETTINGS: Record<string, z.ZodType> = {
   duplicate_window_minutes: z.number().int().min(1).max(1440),
   max_lines_per_invoice: z.number().int().min(1).max(100),
   kill_switch: z.boolean(),
+  test_mode: z.boolean(),
   queue_alert_length: z.number().int().min(1).max(1000),
   queue_alert_wait_minutes: z.number().int().min(1).max(240),
 };
@@ -979,15 +980,13 @@ export function createApp(deps: AppDeps) {
   });
 
   // ================================================================ settings and audit
-  app.get("/admin/settings", async (c) =>
-    c.json(
-      Object.fromEntries(
-        (await db.query<{ key: string; value: unknown }>(`select key, value from platform_settings order by key`)).map(
-          (r) => [r.key, r.value],
-        ),
-      ),
-    ),
-  );
+  app.get("/admin/settings", async (c) => {
+    const rows = await db.query<{ key: string; value: unknown }>(
+      `select key, value from platform_settings order by key`,
+    );
+    // test mode is ON until someone switches it off, even before it was ever saved
+    return c.json({ test_mode: true, ...Object.fromEntries(rows.map((r) => [r.key, r.value])) });
+  });
 
   app.put("/admin/settings/:key", async (c) => {
     const actor = c.get("actor");

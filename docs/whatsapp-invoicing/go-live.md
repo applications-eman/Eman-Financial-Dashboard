@@ -19,6 +19,23 @@ Nothing below changes the old Odoo 17 system, the expense capture, or the curren
 6. **Pilot**: add one salesman, assign customers, Activate. He sends any message to the invoicing number, taps the button, creates a small real invoice. The accounts team checks it in Odoo (and the PDF), then the dashboard Invoices tab.
 7. **Switch**: only when the pilot is good, deploy the router and point Meta's webhook at it (with the way back ready).
 
+## Testing from your own mobile (sandbox, before any real salesman)
+Test mode is ON by default (dashboard > WhatsApp Platform > Settings > "Test mode"). While it is on:
+- Everything runs through the real WhatsApp number and the real Flow, but every message and PDF caption starts with **[TEST - sandbox]**, and the invoice itself carries the note "TEST INVOICE - ZATCA SANDBOX - NOT A VALID TAX INVOICE".
+- Invoices go only to the Odoo journal **WhatsApp Test** (id 23), never to the real Sales journal. If no test journal is configured, nothing is processed.
+- ZATCA receives them in its sandbox only. For the sandbox the company VAT must be temporarily the ZATCA test number (see above), then restored.
+
+Setup for a test from your mobile:
+1. Dashboard > Services & numbers: service id `invoicing` (address from `connect-invoicing.sh`).
+2. Salesmen: add yourself (code e.g. `TEST-1`, your own WhatsApp number), then **Activate**.
+3. Customers: add `TEST Customer Sandbox`. Products: category `Test`, product `TEST Product Sandbox`, maximum price e.g. 50. (These names match the Odoo test records exactly.)
+4. Salesmen > Customers: give yourself `TEST Customer Sandbox`.
+5. Settings > *Link customers and products to Odoo*.
+6. Connect with `ODOO_SALES_JOURNAL_ID` = 23 (the script asks for the sales journal id).
+7. From your mobile: send any message to the invoicing number, tap the button, make as many test invoices as you like.
+
+Going real later is a separate, deliberate step: onboard the real Sales journal for ZATCA (simulation, then production), set `ODOO_SALES_JOURNAL_ID` to it, then switch Test mode off.
+
 ## How an invoice travels
 Salesman confirms in the Flow, the request is saved and queued (one at a time), the service creates the invoice in Odoo with reference `WA-<ref>`, posts it, sends it to ZATCA through Odoo's own Send & Print, leaves it **unpaid** (credit basis, no payment is recorded), and sends the PDF to the salesman. A crash or timeout never creates a second invoice: Odoo is searched for the reference first.
 

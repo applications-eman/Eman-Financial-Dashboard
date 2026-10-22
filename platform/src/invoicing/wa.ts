@@ -130,3 +130,30 @@ export class CloudWa implements WaPort {
     }
   }
 }
+
+export const TEST_TAG = "[TEST - sandbox]";
+
+/** In test mode every message, button text and PDF caption starts with the TEST marking. Reads the setting on each send. */
+export class TestModeWa implements WaPort {
+  private inner: WaPort;
+  private isTest: () => Promise<boolean>;
+  constructor(inner: WaPort, isTest: () => Promise<boolean>) {
+    this.inner = inner;
+    this.isTest = isTest;
+  }
+  private async tag(text: string): Promise<string> {
+    return (await this.isTest()) ? `${TEST_TAG} ${text}` : text;
+  }
+  async sendText(to: string, text: string) {
+    return this.inner.sendText(to, await this.tag(text));
+  }
+  async sendFlow(to: string, p: { body: string; token: string; cta?: string }) {
+    return this.inner.sendFlow(to, { ...p, body: await this.tag(p.body) });
+  }
+  async sendButtons(to: string, body: string, buttons: { id: string; title: string }[]) {
+    return this.inner.sendButtons(to, await this.tag(body), buttons);
+  }
+  async sendDocument(to: string, d: { filename: string; base64: string; caption: string }) {
+    return this.inner.sendDocument(to, { ...d, caption: await this.tag(d.caption) });
+  }
+}

@@ -6,8 +6,9 @@ import { buildFlowJson } from "./invoicing/flow-json.ts";
 import { submitRequest } from "./invoicing/intake.ts";
 import { OdooError } from "./invoicing/odoo.ts";
 import type { InvoicingDeps } from "./invoicing/routes.ts";
+import { TEST_TAG, TestModeWa } from "./invoicing/wa.ts";
 import { handleInvoicingWebhook } from "./invoicing/webhook.ts";
-import { drain, type WorkerDeps } from "./invoicing/worker.ts";
+import { drain, TEST_NOTE, type WorkerDeps } from "./invoicing/worker.ts";
 import { testDb } from "./test-db.ts";
 import { FakeOdoo } from "./test-odoo.ts";
 import { FakeWa, lastSent } from "./test-wa.ts";
@@ -51,6 +52,7 @@ async function world() {
     db,
     odoo,
     wa,
+    salesJournalId: 23,
     workerId: "w1",
     today: () => "2026-10-22",
     pendingRetrySeconds: 30,
@@ -602,4 +604,51 @@ test("the Flow definition follows Meta's rules", () => {
     readFileSync(new URL("../../docs/whatsapp-invoicing/flow-live.json", import.meta.url), "utf8"),
   );
   assert.deepEqual(onDisk, JSON.parse(JSON.stringify(f)), "run: node src/invoicing/write-flow.ts");
+});
+
+test("test mode: marked invoice on the test journal only; real mode is unmarked", async () => {
+  const w = await world();
+  const r = await queued(w);
+  await drain(w.worker); // test mode is on by default
+  assert.equal(w.odoo.moves[0].note, TEST_NOTE);
+  assert.equal(w.odoo.moves[0].journalId, 23);
+
+  // test mode on but no test journal configured: nothing is written to Odoo, the request waits
+  const w2 = await world();
+  w2.worker.salesJournalId = null;
+  const r2 = await queued(w2);
+  assert.equal(await drain(w2.worker), 0);
+  assert.equal(w2.odoo.moves.length, 0);
+  assert.equal((await w2.db.query(`select status from invoice_requests where id=$1`, [r2.id]))[0].status, "queued");
+
+  // switched to real invoicing: no marking
+  const w3 = await world();
+  await w3.db.query(
+    `insert into platform_settings (key, value) values ('test_mode','false') on conflict (key) do update set value='false'`,
+  );
+  await queued(w3);
+  await drain(w3.worker);
+  assert.equal(w3.odoo.moves[0].note, null);
+  assert.ok(r.id);
+});
+
+test("test mode: every WhatsApp message is tagged, and untagged in real mode", async () => {
+  const w = await world();
+  const wa = new FakeWa();
+  const tagged = new TestModeWa(
+    wa,
+    async () => (await w.db.query(`select value from platform_settings where key='test_mode'`))[0]?.value !== false,
+  );
+  await tagged.sendText(PHONE, "hello");
+  await tagged.sendFlow(PHONE, { body: "Tap", token: "t" });
+  await tagged.sendDocument(PHONE, { filename: "a.pdf", base64: "QQ==", caption: "Invoice" });
+  assert.deepEqual(
+    wa.sent.map((m) => m.text),
+    [`${TEST_TAG} hello`, `${TEST_TAG} Tap`, `${TEST_TAG} Invoice`],
+  );
+  await w.db.query(
+    `insert into platform_settings (key, value) values ('test_mode','false') on conflict (key) do update set value='false'`,
+  );
+  await tagged.sendText(PHONE, "hello");
+  assert.equal(wa.sent.at(-1)?.text, "hello");
 });

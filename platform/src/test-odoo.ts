@@ -6,6 +6,8 @@ interface FakeMove extends OdooMove {
   partnerId: number;
   lines: OdooLine[];
   paid: boolean;
+  note: string | null;
+  journalId: number | null;
 }
 
 /** Simulated Odoo for tests. `zatca` decides what ZATCA answers; `failNext` makes the next call of a kind fail. */
@@ -49,6 +51,8 @@ export class FakeOdoo implements OdooPort {
       partnerId: i.partnerId,
       lines: i.lines,
       paid: false,
+      note: i.note ?? null,
+      journalId: i.journalId ?? null,
     };
     this.moves.push(m);
     return m.id;

@@ -3,8 +3,9 @@ import { serve } from "@hono/node-server";
 import { type AppDeps, createApp } from "./app.ts";
 import { PgDb } from "./db.ts";
 import { loadPrivateKey } from "./invoicing/flow-crypto.ts";
+import { setting } from "./invoicing/intake.ts";
 import { Json2Odoo } from "./invoicing/odoo.ts";
-import { CloudWa } from "./invoicing/wa.ts";
+import { CloudWa, TestModeWa } from "./invoicing/wa.ts";
 import { drain, type WorkerDeps } from "./invoicing/worker.ts";
 import { randomUUID } from "node:crypto";
 
@@ -37,13 +38,14 @@ if (missing.length === 0) {
     db: process.env.ODOO_DB || undefined,
     apiKey: need("ODOO_API_KEY"),
   });
-  const wa = new CloudWa({
+  const cloud = new CloudWa({
     phoneNumberId: need("WA_PHONE_NUMBER_ID"),
     token: need("WA_TOKEN"),
     flowId: need("FLOW_ID"),
     flowMode: process.env.FLOW_MODE === "draft" ? "draft" : "published",
     graphVersion: process.env.GRAPH_VERSION || undefined,
   });
+  const wa = new TestModeWa(cloud, async () => (await setting(db, "test_mode", true)) === true);
   const worker: WorkerDeps = {
     db,
     odoo,

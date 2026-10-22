@@ -31,6 +31,8 @@ export interface OdooPort {
     lines: OdooLine[];
     analyticId?: number | null;
     journalId?: number | null;
+    /** text printed on the invoice (Odoo "Terms and conditions" area), e.g. the TEST marking */
+    note?: string | null;
   }): Promise<number>;
   post(moveId: number): Promise<void>;
   /** submit to ZATCA through Odoo's own "Send & Print" (production or testing, as the company is set) */
@@ -180,6 +182,7 @@ export class Json2Odoo implements OdooPort {
           move_type: "out_invoice",
           partner_id: i.partnerId,
           ...(i.journalId ? { journal_id: i.journalId } : {}),
+          ...(i.note ? { narration: `<p>${i.note}</p>` } : {}),
           ref: i.ref,
           invoice_origin: i.origin,
           invoice_date: i.date,

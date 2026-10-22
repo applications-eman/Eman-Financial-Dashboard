@@ -53,6 +53,23 @@ export function SettingsTab() {
   return (
     <div className="flex max-w-xl flex-col gap-5">
       <OdooCard />
+      <div className="flex items-start justify-between gap-4 rounded-lg border border-amber-500/50 p-3">
+        <div className="space-y-1">
+          <Label htmlFor="test">Test mode (ZATCA sandbox)</Label>
+          <p className="text-muted-foreground text-xs">
+            On: every WhatsApp message and PDF caption says TEST, the invoice carries a TEST note, and invoices go only
+            to the test journal. Off: real invoicing.
+          </p>
+        </div>
+        <Switch
+          id="test"
+          checked={values.test_mode !== false}
+          onCheckedChange={(c) => {
+            if (!c && !confirm("Switch to REAL invoicing? Invoices will no longer be marked as test.")) return;
+            void save("test_mode", c);
+          }}
+        />
+      </div>
       <div className="flex items-start justify-between gap-4 rounded-lg border border-destructive/40 p-3">
         <div className="space-y-1">
           <Label htmlFor="kill">Stop all new invoices (emergency switch)</Label>

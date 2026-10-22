@@ -38,6 +38,7 @@ interface Job {
 }
 
 const LOCK = "odoo-invoicing";
+export const TEST_NOTE = "TEST INVOICE - ZATCA SANDBOX - NOT A VALID TAX INVOICE";
 const cleared = (s: OdooMove["zatcaState"]) => s === "accepted" || s === "warning";
 const riyadhToday = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Riyadh" });
 
@@ -57,6 +58,8 @@ export async function drain(d: WorkerDeps): Promise<number> {
     for (;;) {
       // paused by the emergency switch: take nothing new
       if ((await setting(d.db, "kill_switch", false)) === true) return handled;
+      // test mode must never write to the real sales journal: without a test journal nothing is processed
+      if ((await setting(d.db, "test_mode", true)) === true && !d.salesJournalId) return handled;
       const [{ ok }] = await d.db.query<{ ok: boolean }>(`select public.acquire_lock($1,$2,150) as ok`, [
         LOCK,
         d.workerId,
@@ -125,6 +128,7 @@ async function processJob(d: WorkerDeps, job: Job) {
     job.customer_id,
   ]);
   const today = (d.today ?? riyadhToday)();
+  const testMode = (await setting(d.db, "test_mode", true)) === true;
 
   try {
     let move: OdooMove | null = job.odoo_move_id
@@ -139,6 +143,7 @@ async function processJob(d: WorkerDeps, job: Job) {
         date: today,
         analyticId: sm.odoo_analytic_id ? Number(sm.odoo_analytic_id) : null,
         journalId: d.salesJournalId ?? null,
+        note: testMode ? TEST_NOTE : null,
         lines: job.lines.map((l) => ({
           productId: l.odoo_product_id,
           name: l.name,

@@ -158,3 +158,11 @@ test("products: price limit history, bulk upload, settings, audit", async () => 
   assert.ok(audit.every((a: Row) => a.actor === "boss@example.com"));
   assert.equal((await call("GET", "/admin/summary")).json.products_active, 2);
 });
+
+test("settings: test mode is on until switched off", async () => {
+  const { call } = await setup();
+  assert.equal((await call("GET", "/admin/settings")).json.test_mode, true);
+  assert.equal((await call("PUT", "/admin/settings/test_mode", { value: false })).status, 200);
+  assert.equal((await call("GET", "/admin/settings")).json.test_mode, false);
+  assert.equal((await call("PUT", "/admin/settings/test_mode", { value: "no" })).status, 400);
+});
