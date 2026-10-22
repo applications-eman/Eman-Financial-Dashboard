@@ -78,6 +78,17 @@ async function session(w: World, token = "tok1") {
   return token;
 }
 
+/** adds one product to the cart, then opens the cart like a tap on "Open cart" */
+async function addToCart(db: World["db"], token: string, data: Record<string, unknown>) {
+  const added = await handleFlow(db, {
+    action: "data_exchange",
+    flow_token: token,
+    data: { action: "add_item", ...data },
+  });
+  if (added.data.error_message) return added;
+  return handleFlow(db, { action: "data_exchange", flow_token: token, data: { action: "open_cart" } });
+}
+
 /** walks the Flow like the phone does and confirms */
 async function placeOrder(w: World, token: string, qty = "20", price = "4.35") {
   const init = await handleFlow(w.db, { action: "INIT", flow_token: token });
@@ -93,11 +104,7 @@ async function placeOrder(w: World, token: string, qty = "20", price = "4.35") {
     data: { action: "select_category", category: w.category },
   });
   assert.equal((items.data.products as unknown[]).length, 1);
-  const review = await handleFlow(w.db, {
-    action: "data_exchange",
-    flow_token: token,
-    data: { action: "submit_item", category: w.category, product: w.product, qty, price, after: "add_review" },
-  });
+  const review = await addToCart(w.db, token, { category: w.category, product: w.product, qty, price });
   assert.equal(review.screen, "REVIEW", JSON.stringify(review.data));
   return handleFlow(w.db, { action: "data_exchange", flow_token: token, data: { action: "confirm" } });
 }
@@ -161,12 +168,11 @@ test("flow: customer list, price rules, cart, review, confirm once", async () =>
       action: "data_exchange",
       flow_token: t,
       data: {
-        action: "submit_item",
+        action: "add_item",
         category: w.category,
         product: w.product,
         qty: "10",
         price: "4.00",
-        after: "add_more",
         ...o,
       },
     });
@@ -174,9 +180,42 @@ test("flow: customer list, price rules, cart, review, confirm once", async () =>
   assert.match(String((await add({ price: "abc" })).data.error_message), /valid price/);
   assert.match(String((await add({ price: "4.51" })).data.error_message), /maximum allowed is 4.50/);
   assert.equal((await add({ price: "4.50" })).screen, "ITEMS"); // exactly the limit is fine
-  assert.match(String((await add({ after: "remove_last" })).data.cart_text), /empty/);
+  // remove the line that was just added (it is the only one), then build the real cart
+  const removed = await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: t,
+    data: { action: "remove_line", line: "0" },
+  });
+  assert.match(String(removed.data.review_text), /empty/);
   await add({});
-  const rev = await add({ after: "add_review", qty: "5", price: "4.20" });
+  await add({ qty: "5", price: "4.20" });
+  // change the first line, then look at the cart
+  const changed = await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: t,
+    data: { action: "update_line", line: "0", qty: "10", price: "4.00" },
+  });
+  assert.equal(changed.screen, "REVIEW");
+  assert.match(
+    String(
+      (
+        await handleFlow(w.db, {
+          action: "data_exchange",
+          flow_token: t,
+          data: { action: "update_line", line: "0", price: "9" },
+        })
+      ).data.error_message,
+    ),
+    /maximum allowed/,
+  );
+  assert.match(
+    String(
+      (await handleFlow(w.db, { action: "data_exchange", flow_token: t, data: { action: "update_line", line: "7" } }))
+        .data.error_message,
+    ),
+    /choose the line/,
+  );
+  const rev = await handleFlow(w.db, { action: "data_exchange", flow_token: t, data: { action: "open_cart" } });
   assert.equal(rev.screen, "REVIEW");
   assert.match(String(rev.data.review_text), /Before VAT 61\.00\. VAT 9\.15\. Total 70\.15/);
 
@@ -196,17 +235,11 @@ test("intake: server re-checks prices, links, duplicates and limits", async () =
     flow_token: t,
     data: { action: "select_customer", customer: w.customer },
   });
-  await handleFlow(w.db, {
-    action: "data_exchange",
-    flow_token: t,
-    data: {
-      action: "submit_item",
-      category: w.category,
-      product: w.product,
-      qty: "2",
-      price: "4.00",
-      after: "add_review",
-    },
+  await addToCart(w.db, t, {
+    category: w.category,
+    product: w.product,
+    qty: "2",
+    price: "4.00",
   });
   // the limit was lowered after the salesman typed his price
   await w.db.query(`update products set max_price = 3.50`);
@@ -231,17 +264,11 @@ test("intake: server re-checks prices, links, duplicates and limits", async () =
     flow_token: t2,
     data: { action: "select_customer", customer: w.customer },
   });
-  await handleFlow(w.db, {
-    action: "data_exchange",
-    flow_token: t2,
-    data: {
-      action: "submit_item",
-      category: w.category,
-      product: w.product,
-      qty: "2",
-      price: "4.00",
-      after: "add_review",
-    },
+  await addToCart(w.db, t2, {
+    category: w.category,
+    product: w.product,
+    qty: "2",
+    price: "4.00",
   });
   const dup = await submitRequest(w.db, t2);
   assert.ok(dup.ok && dup.kind === "approval");
@@ -255,17 +282,11 @@ test("intake: server re-checks prices, links, duplicates and limits", async () =
     flow_token: t3,
     data: { action: "select_customer", customer: w.customer },
   });
-  await handleFlow(w.db, {
-    action: "data_exchange",
-    flow_token: t3,
-    data: {
-      action: "submit_item",
-      category: w.category,
-      product: w.product,
-      qty: "1",
-      price: "1.00",
-      after: "add_review",
-    },
+  await addToCart(w.db, t3, {
+    category: w.category,
+    product: w.product,
+    qty: "1",
+    price: "1.00",
   });
   const lim = await submitRequest(w.db, t3);
   assert.equal(!lim.ok && lim.code, "M23");
@@ -546,17 +567,11 @@ test("admin: link to Odoo, requests list, approvals by a supervisor, retry", asy
     flow_token: t2,
     data: { action: "select_customer", customer: w.customer },
   });
-  await handleFlow(w.db, {
-    action: "data_exchange",
-    flow_token: t2,
-    data: {
-      action: "submit_item",
-      category: w.category,
-      product: w.product,
-      qty: "2",
-      price: "4.00",
-      after: "add_review",
-    },
+  await addToCart(w.db, t2, {
+    category: w.category,
+    product: w.product,
+    qty: "2",
+    price: "4.00",
   });
   await handleFlow(w.db, { action: "data_exchange", flow_token: t2, data: { action: "confirm" } });
   const approvals = (await call("GET", "/admin/approvals", undefined, "sup@example.com")).json;
@@ -588,8 +603,8 @@ test("the Flow definition follows Meta's rules", () => {
   for (const [from, tos] of Object.entries(f.routing_model))
     for (const to of tos)
       assert.ok(Number(order.get(to)) > Number(order.get(from)), `route ${from}->${to} must go forward`);
-  const names = new Set<string>();
   for (const s of f.screens) {
+    const names = new Set<string>(); // field names only have to be unique within one screen
     const kids = s.layout.children as { type: string; name?: string }[];
     assert.equal(kids.filter((k) => k.type === "Footer").length, 1, `${s.id} needs one Footer`);
     for (const k of kids)
@@ -680,7 +695,7 @@ test("flow: no list sent to the phone is ever empty (Meta silently refuses such 
   const bad = await handleFlow(w.db, {
     action: "data_exchange",
     flow_token: t,
-    data: { action: "submit_item", category: w.category, product: "none", qty: "1", price: "1", after: "add_more" },
+    data: { action: "add_item", category: w.category, product: "none", qty: "1", price: "1" },
   });
   assert.equal(bad.screen, "ITEMS");
   assert.match(String(bad.data.error_message), /choose a product/i);
@@ -718,30 +733,24 @@ test("flow: every answer matches the data the Flow declares for that screen (key
   await step("customer", { action: "select_customer", customer: w.customer });
   await step("category", { action: "select_category", category: w.category });
   await step("bad price", {
-    action: "submit_item",
+    action: "add_item",
     category: w.category,
     product: w.product,
     qty: "1",
     price: "99",
-    after: "add_more",
   });
   await step("add more", {
-    action: "submit_item",
+    action: "add_item",
     category: w.category,
     product: w.product,
     qty: "2",
     price: "4",
-    after: "add_more",
   });
-  await step("remove", { action: "submit_item", category: w.category, after: "remove_last" });
-  await step("review", {
-    action: "submit_item",
-    category: w.category,
-    product: w.product,
-    qty: "2",
-    price: "4",
-    after: "add_review",
-  });
+  await step("open cart", { action: "open_cart" });
+  await step("change line", { action: "update_line", line: "0", qty: "3", price: "4" });
+  await step("remove line", { action: "remove_line", line: "0" });
+  await step("add again", { action: "add_item", category: w.category, product: w.product, qty: "2", price: "4" });
+  await step("review", { action: "open_cart" });
   const ok = await step("confirm", { action: "confirm" });
   assert.equal(ok.screen, "SUCCESS");
 });
@@ -760,9 +769,10 @@ test("flow: the step is understood even when its name did not arrive, and a dead
     product: w.product,
     qty: "2",
     price: "4",
-    after: "add_review",
   });
-  assert.equal(added.screen, "REVIEW");
+  assert.equal(added.screen, "ITEMS");
+  const nameless = await go("REVIEW", { line: "0", qty: "3", price: "4" }); // a line field means "change this line"
+  assert.equal(nameless.screen, "REVIEW");
   const named = await handleFlow(w.db, {
     action: "data_exchange",
     screen: "REVIEW",

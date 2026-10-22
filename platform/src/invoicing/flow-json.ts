@@ -1,5 +1,5 @@
 // biome-ignore-all lint/suspicious/noTemplateCurlyInString: "${data.x}" and "${form.x}" are Meta Flow expressions, not JavaScript templates
-// The Flow definition uploaded to Meta (Flow JSON 6.0, data endpoint 3.0). Generated, so tests can check it.
+// The Flow definition uploaded to Meta (Flow JSON 6.3, data endpoint 3.0). Generated, so tests can check it.
 const heading = (text: string) => ({ type: "TextHeading", text });
 const body = (text: string) => ({ type: "TextBody", text });
 const dataExchange = (payload: Record<string, string>) => ({ name: "data_exchange", payload });
@@ -16,7 +16,7 @@ const str = (example: string) => ({ type: "string", __example__: example });
 
 export function buildFlowJson() {
   return {
-    version: "6.0",
+    version: "6.3",
     data_api_version: "3.0",
     routing_model: { CUSTOMER: ["ITEMS"], ITEMS: ["REVIEW"], REVIEW: [] },
     screens: [
@@ -46,6 +46,7 @@ export function buildFlowJson() {
       {
         id: "ITEMS",
         title: "Invoice",
+        refresh_on_back: true,
         data: {
           categories: optionArray([{ id: "k1", title: "Shami" }]),
           products: optionArray([{ id: "p1", title: "SHAMI - 5", description: "Maximum 4.50 before VAT" }]),
@@ -54,12 +55,17 @@ export function buildFlowJson() {
         layout: {
           type: "SingleColumnLayout",
           children: [
-            heading("Your invoice"),
+            {
+              type: "EmbeddedLink",
+              text: "Open cart / edit ›",
+              "on-click-action": dataExchange({ step: "open_cart" }),
+            },
             body("${data.cart_text}"),
             {
-              type: "Dropdown",
+              type: "ChipsSelector",
               label: "Category",
               name: "category",
+              "max-selected-items": 1,
               required: false,
               "data-source": "${data.categories}",
               "on-select-action": dataExchange({ step: "select_category", category: "${form.category}" }),
@@ -71,43 +77,17 @@ export function buildFlowJson() {
               required: false,
               "data-source": "${data.products}",
             },
-            {
-              type: "TextInput",
-              label: "Quantity",
-              name: "qty",
-              "input-type": "number",
-              required: false,
-            },
-            {
-              type: "TextInput",
-              label: "Price before VAT",
-              name: "price",
-              "input-type": "number",
-              required: false,
-            },
-            {
-              type: "RadioButtonsGroup",
-              label: "What next?",
-              name: "after",
-              required: true,
-              "init-value": "add_more",
-              "data-source": [
-                { id: "add_more", title: "Add and add another product" },
-                { id: "add_review", title: "Add and go to review" },
-                { id: "review_only", title: "Go to review" },
-                { id: "remove_last", title: "Remove the last product" },
-              ],
-            },
+            { type: "TextInput", label: "Quantity", name: "qty", "input-type": "number", required: false },
+            { type: "TextInput", label: "Price before VAT", name: "price", "input-type": "number", required: false },
             {
               type: "Footer",
-              label: "Continue",
+              label: "Add to cart",
               "on-click-action": dataExchange({
-                step: "submit_item",
+                step: "add_item",
                 category: "${form.category}",
                 product: "${form.product}",
                 qty: "${form.qty}",
                 price: "${form.price}",
-                after: "${form.after}",
               }),
             },
           ],
@@ -115,15 +95,54 @@ export function buildFlowJson() {
       },
       {
         id: "REVIEW",
-        title: "Please check",
+        title: "Cart",
         terminal: true,
-        data: { review_text: str("Customer: Al Noor Supermarket\n\n1. SHAMI - 5: 20 x 4.35 = 87.00") },
+        data: {
+          review_text: str("Customer: Al Noor Supermarket\n\n1. SHAMI - 5: 20 x 4.35 = 87.00"),
+          lines: optionArray([{ id: "0", title: "1. SHAMI - 5: 20 x 4.35" }]),
+        },
         layout: {
           type: "SingleColumnLayout",
           children: [
-            heading("Please check"),
             body("${data.review_text}"),
-            { type: "Footer", label: "Confirm invoice", "on-click-action": dataExchange({ step: "confirm" }) },
+            body("To change or remove a product, choose it below. To add more products, tap the back arrow."),
+            {
+              type: "Dropdown",
+              label: "Product in the cart",
+              name: "line",
+              required: false,
+              "data-source": "${data.lines}",
+            },
+            {
+              type: "TextInput",
+              label: "New quantity (optional)",
+              name: "qty",
+              "input-type": "number",
+              required: false,
+            },
+            {
+              type: "TextInput",
+              label: "New price (optional)",
+              name: "price",
+              "input-type": "number",
+              required: false,
+            },
+            {
+              type: "EmbeddedLink",
+              text: "Change this product",
+              "on-click-action": dataExchange({
+                step: "update_line",
+                line: "${form.line}",
+                qty: "${form.qty}",
+                price: "${form.price}",
+              }),
+            },
+            {
+              type: "EmbeddedLink",
+              text: "Remove this product",
+              "on-click-action": dataExchange({ step: "remove_line", line: "${form.line}" }),
+            },
+            { type: "Footer", label: "Create invoice", "on-click-action": dataExchange({ step: "confirm" }) },
           ],
         },
       },

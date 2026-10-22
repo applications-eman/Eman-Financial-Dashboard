@@ -1,5 +1,6 @@
-// WhatsApp Flow data endpoint logic (already decrypted). Screens: CUSTOMER -> ITEMS (cart lives here) -> REVIEW -> done.
-// Meta limits the routing to forward steps, so "add another product" re-answers the ITEMS screen with the updated cart.
+// WhatsApp Flow data endpoint logic (already decrypted). Screens: CUSTOMER -> ITEMS (category chips, products, "Add to cart")
+// -> REVIEW (the cart: change or remove a line, create the invoice) -> done.
+// Meta limits the routing to forward steps, so "add to cart" re-answers the ITEMS screen with the updated cart.
 // The Flow never waits for Odoo: confirming only writes a queued request; the worker does the rest.
 import type { Db } from "../db.ts";
 import { loadSession, money, priceLine, type Session, type SessionLine, submitRequest, totals } from "./intake.ts";
@@ -112,7 +113,7 @@ async function customerScreen(db: Db, s: Session | null, error?: string): Promis
 async function itemsScreen(
   db: Db,
   s: Session,
-  o: { category?: string | null; error?: string; keep?: { product?: string; qty?: string; price?: string } } = {},
+  o: { category?: string | null; error?: string } = {},
 ): Promise<FlowResponse> {
   const category = o.category ?? null;
   return {
@@ -126,12 +127,24 @@ async function itemsScreen(
   };
 }
 
+async function lineOptions(db: Db, lines: SessionLine[]): Promise<Opt[]> {
+  const nm = await names(
+    db,
+    lines.map((l) => l.product_id),
+  );
+  return lines.map((l, i) => {
+    const label = `${nm.get(l.product_id) ?? "Product"}: ${l.qty} x ${money(l.price)}`;
+    return { id: String(i), title: cut(`${i + 1}. ${label}`), description: cut(label, 300) };
+  });
+}
+
 async function reviewScreen(db: Db, s: Session, error?: string): Promise<FlowResponse> {
   const [c] = await db.query<{ name: string }>(`select name from customers where id=$1`, [s.customer_id]);
   return {
     screen: "REVIEW",
     data: {
       review_text: `Customer: ${c?.name ?? ""}\n\n${await cartText(db, s.lines)}`,
+      lines: orPlaceholder(await lineOptions(db, s.lines), "The cart is empty"),
       ...(error ? { error_message: error } : {}),
     },
   };
@@ -153,13 +166,16 @@ export function stepOf(screen: string | undefined, d: Record<string, unknown>): 
   const named = String(d.step ?? d.action ?? "");
   if (named) return named;
   if (screen === "CUSTOMER") return "customer" in d ? "select_customer" : "";
-  if (screen === "REVIEW") return "confirm";
+  if (screen === "REVIEW") return "line" in d ? "update_line" : "confirm";
   if (screen === "ITEMS") {
-    if (["product", "qty", "price", "after"].some((k) => k in d)) return "submit_item";
+    if (["product", "qty", "price"].some((k) => k in d)) return "add_item";
     if ("category" in d) return "select_category";
   }
   return "";
 }
+
+/** Chips arrive as a list with the one chosen id; a plain value is accepted too. */
+const firstOf = (v: unknown): string => String((Array.isArray(v) ? v[0] : v) ?? "");
 
 export async function handleFlow(db: Db, body: FlowBody): Promise<FlowResponse> {
   if (body.action === "ping") return { data: { status: "active" } };
@@ -181,7 +197,11 @@ export async function handleFlow(db: Db, body: FlowBody): Promise<FlowResponse> 
 
   if (!s) {
     // the form expired: stay on the screen the person is on, with the message
-    if (body.screen === "REVIEW") return { screen: "REVIEW", data: { review_text: "", error_message: err("M22") } };
+    if (body.screen === "REVIEW")
+      return {
+        screen: "REVIEW",
+        data: { review_text: "", lines: orPlaceholder([], "The cart is empty"), error_message: err("M22") },
+      };
     return customerScreen(db, null, err("M22"));
   }
 
@@ -199,9 +219,15 @@ export async function handleFlow(db: Db, body: FlowBody): Promise<FlowResponse> 
       return itemsScreen(db, { ...s, customer_id: id });
     }
     case "select_category":
-      return itemsScreen(db, s, { category: String(d.category ?? "") || null });
-    case "submit_item":
-      return submitItem(db, s, token, d);
+      return itemsScreen(db, s, { category: firstOf(d.category) || null });
+    case "add_item":
+      return addItem(db, s, token, d);
+    case "open_cart":
+      return reviewScreen(db, s);
+    case "update_line":
+      return updateLine(db, s, token, d);
+    case "remove_line":
+      return removeLine(db, s, token, d);
     case "confirm": {
       const r = await submitRequest(db, token);
       if (!r.ok) return reviewScreen(db, s, err(r.code, r.vars));
@@ -215,44 +241,78 @@ export async function handleFlow(db: Db, body: FlowBody): Promise<FlowResponse> 
   }
 }
 
-async function submitItem(db: Db, s: Session, token: string, d: Record<string, unknown>): Promise<FlowResponse> {
-  const after = String(d.after ?? "add_more");
-  const category = String(d.category ?? "") || null;
-  const keep = { product: String(d.product ?? ""), qty: String(d.qty ?? ""), price: String(d.price ?? "") };
-  const fail = (m: string) => itemsScreen(db, s, { category, keep, error: m });
+interface Checked {
+  productId: string;
+  qty: number;
+  price: number;
+}
 
-  if (after === "remove_last") {
-    const lines = s.lines.slice(0, -1);
-    await save(db, token, { lines });
-    return itemsScreen(db, { ...s, lines }, { category });
-  }
-  if (after === "review_only") {
-    if (s.lines.length === 0) return fail(err("M08"));
-    return reviewScreen(db, s);
-  }
-
-  const productId = String(d.product ?? "");
-  if (!productId) return fail("Please choose a product.");
+/** The authoritative checks for one line (the same ones the invoice request repeats). */
+async function checkLine(
+  db: Db,
+  d: Record<string, unknown>,
+): Promise<{ ok: true; line: Checked } | { ok: false; error: string }> {
+  const productId = firstOf(d.product);
+  if (!productId) return { ok: false, error: "Please choose a product." };
   const qty = parseAmount(d.qty);
-  if (!(qty > 0) || qty > 100000) return fail(err("M05"));
+  if (!(qty > 0) || qty > 100000) return { ok: false, error: err("M05") };
   const price = parseAmount(d.price);
-  if (!(price > 0) || price > 1_000_000) return fail(err("M06"));
-
+  if (!(price > 0) || price > 1_000_000) return { ok: false, error: err("M06") };
   const [p] = await db.query<{ id: string; name: string; max_price: string | null }>(
     `select id, name, max_price from products where id::text = $1 and status='active' and odoo_product_id is not null`,
     [productId],
   );
-  if (!p) return fail("Please choose a product.");
-  if (p.max_price === null) return fail(err("M09", { product: p.name }));
+  if (!p) return { ok: false, error: "Please choose a product." };
+  if (p.max_price === null) return { ok: false, error: err("M09", { product: p.name }) };
   if (Math.round(price * 100) > Math.round(Number(p.max_price) * 100))
-    return fail(err("M07", { product: p.name, entered: money(price), max: money(Number(p.max_price)) }));
+    return {
+      ok: false,
+      error: err("M07", { product: p.name, entered: money(price), max: money(Number(p.max_price)) }),
+    };
+  return { ok: true, line: { productId: p.id, qty, price } };
+}
+
+async function addItem(db: Db, s: Session, token: string, d: Record<string, unknown>): Promise<FlowResponse> {
+  const category = firstOf(d.category) || null;
+  const bad = (error: string) => itemsScreen(db, s, { category, error });
+  const checked = await checkLine(db, d);
+  if (!checked.ok) return bad(checked.error);
   const max =
     (await db.query<{ value: number }>(`select value from platform_settings where key='max_lines_per_invoice'`))[0]
       ?.value ?? 20;
-  if (s.lines.length >= max) return fail(err("M28", { max }));
-
-  const lines = [...s.lines, { product_id: p.id, qty, price }];
+  if (s.lines.length >= max) return bad(err("M28", { max }));
+  const lines = [...s.lines, { product_id: checked.line.productId, qty: checked.line.qty, price: checked.line.price }];
   await save(db, token, { lines });
-  const next = { ...s, lines };
-  return after === "add_review" ? reviewScreen(db, next) : itemsScreen(db, next, { category });
+  return itemsScreen(db, { ...s, lines }, { category });
+}
+
+const lineIndex = (s: Session, d: Record<string, unknown>): number => {
+  const raw = firstOf(d.line);
+  const i = /^\d+$/.test(raw) ? Number(raw) : -1;
+  return i >= 0 && i < s.lines.length ? i : -1;
+};
+
+async function removeLine(db: Db, s: Session, token: string, d: Record<string, unknown>): Promise<FlowResponse> {
+  const i = lineIndex(s, d);
+  if (i < 0) return reviewScreen(db, s, "Please choose the line first.");
+  const lines = s.lines.filter((_, k) => k !== i);
+  await save(db, token, { lines });
+  return reviewScreen(db, { ...s, lines });
+}
+
+/** Change the quantity and/or the price of one line; an empty field keeps the old value. */
+async function updateLine(db: Db, s: Session, token: string, d: Record<string, unknown>): Promise<FlowResponse> {
+  const i = lineIndex(s, d);
+  const old = s.lines[i];
+  if (!old) return reviewScreen(db, s, "Please choose the line first.");
+  const blank = (v: unknown) => String(v ?? "").trim() === "";
+  const checked = await checkLine(db, {
+    product: old.product_id,
+    qty: blank(d.qty) ? old.qty : d.qty,
+    price: blank(d.price) ? old.price : d.price,
+  });
+  if (!checked.ok) return reviewScreen(db, s, checked.error);
+  const lines = s.lines.map((l, k) => (k === i ? { ...l, qty: checked.line.qty, price: checked.line.price } : l));
+  await save(db, token, { lines });
+  return reviewScreen(db, { ...s, lines });
 }
