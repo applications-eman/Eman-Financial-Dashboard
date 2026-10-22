@@ -28,7 +28,8 @@ reuse() { secret_exists "$1" && [ "${RESET_SECRETS:-}" != "1" ]; }
 ask_digits_default() { local v d="$2"; while :; do read -rp "$1 [${d:-none}]: " v; v="$(printf '%s' "$v" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"; [ -z "$v" ] && v="$d"; [[ "$v" =~ ^[0-9]+$ ]] && break; echo "  (numbers only - please try again)" >&2; done; printf '%s' "$v"; }
 json_get() { python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get(sys.argv[1],""))' "$1"; }
 
-gcloud services enable cloudscheduler.googleapis.com secretmanager.googleapis.com --project "$PROJECT_ID"
+gcloud services enable cloudscheduler.googleapis.com secretmanager.googleapis.com --project "$PROJECT_ID" \
+  || echo "(could not re-check the Google services right now; they are already enabled, continuing)"
 URL="$(gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format 'value(status.url)')"
 
 echo "== Odoo =="
