@@ -19,6 +19,8 @@ export interface FlowResponse {
 }
 
 const MAX_OPTIONS = 200;
+/** WhatsApp shows at most 20 round ticks in one list. */
+const MAX_TICKS = 20;
 const cut = (s: string, n = 30) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 const err = (code: MsgCode, vars?: Record<string, string | number>) => msg(code, vars);
 
@@ -45,10 +47,10 @@ const orPlaceholder = (opts: { id: string; title: string; description?: string }
 async function customerOptions(db: Db, salesmanId: string): Promise<Opt[]> {
   const rows = await db.query<{ id: string; name: string }>(
     `select c.id, c.name from salesman_customers sc join customers c on c.id = sc.customer_id
-      where sc.salesman_id = $1 and c.status = 'active' and c.odoo_partner_id is not null order by lower(c.name) limit ${MAX_OPTIONS}`,
+      where sc.salesman_id = $1 and c.status = 'active' and c.odoo_partner_id is not null order by lower(c.name) limit ${MAX_TICKS + 1}`,
     [salesmanId],
   );
-  return rows.map((r) => ({
+  return rows.slice(0, MAX_TICKS).map((r) => ({
     id: r.id,
     title: cut(r.name),
     ...(r.name.length > 30 ? { description: cut(r.name, 300) } : {}),
@@ -63,9 +65,6 @@ async function categoryOptions(db: Db): Promise<Opt[]> {
   );
   return rows.map((r) => ({ id: r.id, title: cut(r.name) }));
 }
-
-/** WhatsApp shows at most 20 round ticks in one list. */
-const MAX_TICKS = 20;
 
 /** Products of a category that are not in the cart yet (a product can be on the invoice only once). */
 async function productOptions(db: Db, categoryId: string | null, inCart: string[] = []): Promise<Opt[]> {
@@ -104,12 +103,28 @@ async function cartText(db: Db, lines: SessionLine[]): Promise<string> {
   return `${rows.join("\n")}\n\nBefore VAT ${money(t.subtotal)}. VAT ${money(t.vat)}. Total ${money(t.total)}.`;
 }
 
+/** The tick list holds 20 customers; say so when a salesman has more. */
+async function tooManyCustomers(db: Db, s: Session | null): Promise<string | undefined> {
+  if (!s) return undefined;
+  const [r] = await db.query<{ n: number }>(
+    `select count(*)::int n from salesman_customers sc join customers c on c.id = sc.customer_id
+      where sc.salesman_id = $1 and c.status = 'active' and c.odoo_partner_id is not null`,
+    [s.salesman_id],
+  );
+  return r && r.n > MAX_TICKS
+    ? `Only the first ${MAX_TICKS} of your ${r.n} customers can be shown. Please tell the office.`
+    : undefined;
+}
+
 async function customerScreen(db: Db, s: Session | null, error?: string): Promise<FlowResponse> {
+  const options = s ? await customerOptions(db, s.salesman_id) : [];
+  const note = options.length >= MAX_TICKS ? await tooManyCustomers(db, s) : undefined;
+  const shown = error ?? note;
   return {
     screen: "CUSTOMER",
     data: {
-      customers: orPlaceholder(s ? await customerOptions(db, s.salesman_id) : [], "No customers available"),
-      ...(error ? { error_message: error } : {}),
+      customers: orPlaceholder(options, "No customers available"),
+      ...(shown ? { error_message: shown } : {}),
     },
   };
 }

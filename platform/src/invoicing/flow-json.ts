@@ -30,7 +30,7 @@ export function buildFlowJson() {
           children: [
             heading("Choose the customer"),
             {
-              type: "Dropdown",
+              type: "RadioButtonsGroup",
               label: "Customer",
               name: "customer",
               required: true,
@@ -66,7 +66,7 @@ export function buildFlowJson() {
               type: "Dropdown",
               label: "Category",
               name: "category",
-              required: false,
+              required: true,
               "data-source": "${data.categories}",
               "on-select-action": dataExchange({ step: "select_category", category: "${form.category}" }),
             },
@@ -74,11 +74,11 @@ export function buildFlowJson() {
               type: "RadioButtonsGroup",
               label: "Product",
               name: "product",
-              required: false,
+              required: true,
               "data-source": "${data.products}",
             },
-            { type: "TextInput", label: "Quantity", name: "qty", "input-type": "number", required: false },
-            { type: "TextInput", label: "Price before VAT", name: "price", "input-type": "number", required: false },
+            { type: "TextInput", label: "Quantity", name: "qty", "input-type": "number", required: true },
+            { type: "TextInput", label: "Price before VAT", name: "price", "input-type": "number", required: true },
             {
               type: "Footer",
               label: "Add to cart",
