@@ -148,7 +148,7 @@ async function itemsScreen(
       categories: orPlaceholder(await categoryOptions(db), "No categories available"),
       products: orPlaceholder(
         chosen ? [chosen] : free,
-        category ? "All products here are in the cart" : "Choose a category first",
+        category ? "All products are in the cart" : "Choose a category first",
       ),
       selected: chosen?.id ?? "",
       cart_text: await cartText(db, s.lines),

@@ -651,7 +651,12 @@ test("flow: no list sent to the phone is ever empty (Meta silently refuses such 
   const t = await session(w);
   const lists = (r: { data: Record<string, unknown> }) => Object.values(r.data).filter(Array.isArray) as unknown[][];
   const noEmpty = (name: string, r: { data: Record<string, unknown> }) => {
-    for (const l of lists(r)) assert.ok(l.length > 0, `${name}: an empty list`);
+    for (const l of lists(r)) {
+      assert.ok(l.length > 0, `${name}: an empty list`);
+      // WhatsApp warns on the phone when an option title is longer than 30 characters
+      for (const o of l as { title?: string }[])
+        assert.ok((o.title ?? "").length <= 30, `${name}: title too long: ${o.title}`);
+    }
   };
   noEmpty("INIT", await handleFlow(w.db, { action: "INIT", flow_token: t }));
   const items = await handleFlow(w.db, {
@@ -668,6 +673,16 @@ test("flow: no list sent to the phone is ever empty (Meta silently refuses such 
     data: { action: "select_category", category: w.category },
   });
   noEmpty("ITEMS with a category", withCat);
+  await addToCart(w.db, t, { category: w.category, product: w.product, qty: "1", price: "1" });
+  noEmpty(
+    "ITEMS with every product in the cart",
+    await handleFlow(w.db, {
+      action: "data_exchange",
+      flow_token: t,
+      data: { step: "select_category", category: w.category },
+    }),
+  );
+  await w.db.query(`update flow_sessions set lines = '[]'::jsonb where token = $1`, [t]);
   assert.equal((withCat.data.products as { id: string }[])[0].id, w.product);
   // choosing the placeholder is refused politely
   const bad = await handleFlow(w.db, {
