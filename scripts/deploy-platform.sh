@@ -41,7 +41,7 @@ gcloud run deploy "$SERVICE" \
   --image "$IMAGE" --project "$PROJECT_ID" --region "$REGION" \
   --platform managed --allow-unauthenticated \
   --min-instances 0 --max-instances 2 --cpu 1 --memory 512Mi --concurrency 40 --port 8080 \
-  --set-secrets "DATABASE_URL=eman-platform-database-url:latest,AUTH_SUPABASE_URL=eman-platform-auth-url:latest,ALLOWED_ORIGINS=eman-platform-allowed-origins:latest"
+  --update-secrets "DATABASE_URL=eman-platform-database-url:latest,AUTH_SUPABASE_URL=eman-platform-auth-url:latest,ALLOWED_ORIGINS=eman-platform-allowed-origins:latest"
 
 URL="$(gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format 'value(status.url)')"
 echo "Platform service deployed: ${URL}   (health: ${URL}/health). Every /admin call needs a dashboard sign-in."
