@@ -1,0 +1,12 @@
+{
+  "name": "eman-whatsapp-router",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Single WhatsApp webhook for Meta. Verifies the signature and forwards each message to the service that owns the sender's number.",
+  "scripts": {
+    "start": "node src/server.ts",
+    "test": "node --test src/*.test.ts"
+  },
+  "engines": { "node": ">=22.18" }
+}
