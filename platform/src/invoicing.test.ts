@@ -780,3 +780,37 @@ test("flow: going back to the customer screen starts the invoice from zero; back
   assert.equal(row.customer_id, null);
   assert.deepEqual(row.lines, []);
 });
+
+test("flow: choosing a product leaves only that product in the list; after adding, the full list is back", async () => {
+  const w = await world();
+  const t = await session(w);
+  const [second] = await w.db.query(
+    `insert into products (name, category_id, max_price, odoo_product_id) values ('SHAMI - 10', $1, 8.50, 71) returning id`,
+    [w.category],
+  );
+  const send = (data: Record<string, unknown>) =>
+    handleFlow(w.db, { action: "data_exchange", screen: "ITEMS", flow_token: t, data });
+  await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: t,
+    data: { step: "select_customer", customer: w.customer },
+  });
+  const all = await send({ step: "select_category", category: w.category });
+  assert.equal((all.data.products as unknown[]).length, 2);
+  assert.equal(all.data.selected, "");
+  const picked = await send({ step: "select_product", category: w.category, product: second.id });
+  assert.deepEqual(
+    (picked.data.products as { id: string }[]).map((p) => p.id),
+    [second.id],
+  );
+  assert.equal(picked.data.selected, second.id);
+  // a wrong price keeps the chosen product, so only the price needs fixing
+  const bad = await send({ step: "add_item", category: w.category, product: second.id, qty: "1", price: "99" });
+  assert.equal(bad.data.selected, second.id);
+  const added = await send({ step: "add_item", category: w.category, product: second.id, qty: "1", price: "5" });
+  assert.equal(added.data.selected, "");
+  assert.deepEqual(
+    (added.data.products as { id: string }[]).map((p) => p.id),
+    [w.product],
+  );
+});

@@ -132,21 +132,25 @@ async function customerScreen(db: Db, s: Session | null, error?: string): Promis
 async function itemsScreen(
   db: Db,
   s: Session,
-  o: { category?: string | null; error?: string } = {},
+  o: { category?: string | null; error?: string; selected?: string | null } = {},
 ): Promise<FlowResponse> {
   const category = o.category ?? null;
+  const free = await productOptions(
+    db,
+    category,
+    s.lines.map((l) => l.product_id),
+  );
+  // once a product is chosen, the others leave the list so quantity and price sit right under it
+  const chosen = free.find((p) => p.id === o.selected);
   return {
     screen: "ITEMS",
     data: {
       categories: orPlaceholder(await categoryOptions(db), "No categories available"),
       products: orPlaceholder(
-        await productOptions(
-          db,
-          category,
-          s.lines.map((l) => l.product_id),
-        ),
+        chosen ? [chosen] : free,
         category ? "All products here are in the cart" : "Choose a category first",
       ),
+      selected: chosen?.id ?? "",
       cart_text: await cartText(db, s.lines),
       ...(o.error ? { error_message: o.error } : {}),
     },
@@ -259,6 +263,8 @@ export async function handleFlow(db: Db, body: FlowBody): Promise<FlowResponse> 
     }
     case "select_category":
       return itemsScreen(db, s, { category: firstOf(d.category) || null });
+    case "select_product":
+      return itemsScreen(db, s, { category: firstOf(d.category) || null, selected: firstOf(d.product) || null });
     case "add_item":
       return addItem(db, s, token, d);
     case "open_cart":
@@ -311,7 +317,7 @@ async function checkLine(
 
 async function addItem(db: Db, s: Session, token: string, d: Record<string, unknown>): Promise<FlowResponse> {
   const category = firstOf(d.category) || null;
-  const bad = (error: string) => itemsScreen(db, s, { category, error });
+  const bad = (error: string) => itemsScreen(db, s, { category, error, selected: firstOf(d.product) || null });
   const checked = await checkLine(db, d);
   if (!checked.ok) return bad(checked.error);
   if (s.lines.some((l) => l.product_id === checked.line.productId))

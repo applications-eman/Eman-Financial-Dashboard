@@ -51,6 +51,7 @@ export function buildFlowJson() {
         data: {
           categories: optionArray([{ id: "k1", title: "Shami" }]),
           products: optionArray([{ id: "p1", title: "SHAMI - 5", description: "Maximum 4.50 before VAT" }]),
+          selected: str("p1"),
           cart_text: str("Your cart is empty."),
         },
         layout: {
@@ -76,6 +77,17 @@ export function buildFlowJson() {
               name: "product",
               required: true,
               "data-source": "${data.products}",
+              "init-value": "${data.selected}",
+              "on-select-action": dataExchange({
+                step: "select_product",
+                category: "${form.category}",
+                product: "${form.product}",
+              }),
+            },
+            {
+              type: "EmbeddedLink",
+              text: "Show all products again",
+              "on-click-action": dataExchange({ step: "select_category", category: "${form.category}" }),
             },
             { type: "TextInput", label: "Quantity", name: "qty", "input-type": "number", required: true },
             { type: "TextInput", label: "Price before VAT", name: "price", "input-type": "number", required: true },

@@ -116,6 +116,10 @@
             }
           ]
         },
+        "selected": {
+          "type": "string",
+          "__example__": "p1"
+        },
         "cart_text": {
           "type": "string",
           "__example__": "Your cart is empty."
@@ -157,7 +161,27 @@
             "label": "Product",
             "name": "product",
             "required": true,
-            "data-source": "${data.products}"
+            "data-source": "${data.products}",
+            "init-value": "${data.selected}",
+            "on-select-action": {
+              "name": "data_exchange",
+              "payload": {
+                "step": "select_product",
+                "category": "${form.category}",
+                "product": "${form.product}"
+              }
+            }
+          },
+          {
+            "type": "EmbeddedLink",
+            "text": "Show all products again",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "step": "select_category",
+                "category": "${form.category}"
+              }
+            }
           },
           {
             "type": "TextInput",
