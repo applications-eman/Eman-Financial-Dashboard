@@ -38,6 +38,7 @@ echo "== Flow encryption key =="
 echo "A WhatsApp number can have ONE Flow key. A new key replaces the old one and would break any other Flow on that number"
 echo "(for example the expense capture)."
 read -rp "Is this number used ONLY for invoicing (no other Flow on it)? [y/N]: " ONLY
+HAS_PASS=""
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 if [ "${ONLY:-n}" = "y" ] || [ "${ONLY:-n}" = "Y" ]; then
   openssl genrsa -out "$TMP/private.pem" 2048 2>/dev/null
@@ -50,12 +51,15 @@ else
   read -rp "Path to the EXISTING Flow private key file of this number: " KEYFILE
   [ -f "$KEYFILE" ] || { echo "File not found: $KEYFILE"; exit 1; }
   put_secret eman-platform-flow-key "$(cat "$KEYFILE")"
+  PASS="$(ask_hidden 'Passphrase of that key (press Enter if it has none)')"
+  if [ -n "$PASS" ]; then put_secret eman-platform-flow-key-pass "$PASS"; HAS_PASS=1; fi
 fi
 
 put_secret eman-platform-tick-secret "$(openssl rand -hex 24)"
 
 PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format 'value(projectNumber)')"
 SECRETS="odoo-url odoo-db odoo-key wa-phone-id wa-token flow-id app-secret flow-key tick-secret"
+[ "${HAS_PASS:-}" = "1" ] && SECRETS="$SECRETS flow-key-pass"
 for S in $SECRETS; do
   gcloud secrets add-iam-policy-binding "eman-platform-$S" --project "$PROJECT_ID" \
     --member "serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" --role roles/secretmanager.secretAccessor >/dev/null
@@ -63,7 +67,7 @@ done
 
 # CPU stays on between requests so the queue keeps working right after a salesman confirms; the instance still scales to zero when idle
 gcloud run services update "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --no-cpu-throttling --min-instances 0 \
-  --update-secrets "ODOO_URL=eman-platform-odoo-url:latest,ODOO_DB=eman-platform-odoo-db:latest,ODOO_API_KEY=eman-platform-odoo-key:latest,WA_PHONE_NUMBER_ID=eman-platform-wa-phone-id:latest,WA_TOKEN=eman-platform-wa-token:latest,FLOW_ID=eman-platform-flow-id:latest,META_APP_SECRET=eman-platform-app-secret:latest,FLOW_PRIVATE_KEY=eman-platform-flow-key:latest,TICK_SECRET=eman-platform-tick-secret:latest" \
+  --update-secrets "ODOO_URL=eman-platform-odoo-url:latest,ODOO_DB=eman-platform-odoo-db:latest,ODOO_API_KEY=eman-platform-odoo-key:latest,WA_PHONE_NUMBER_ID=eman-platform-wa-phone-id:latest,WA_TOKEN=eman-platform-wa-token:latest,FLOW_ID=eman-platform-flow-id:latest,META_APP_SECRET=eman-platform-app-secret:latest,FLOW_PRIVATE_KEY=eman-platform-flow-key:latest,TICK_SECRET=eman-platform-tick-secret:latest${HAS_PASS:+,FLOW_PRIVATE_KEY_PASSPHRASE=eman-platform-flow-key-pass:latest}" \
   --update-env-vars "FLOW_MODE=${FLOW_MODE:-draft},ODOO_SALES_JOURNAL_ID=${SALES_JOURNAL}"
 
 URL="$(gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format 'value(status.url)')"
