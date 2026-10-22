@@ -27,3 +27,4 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ci
           NEXT_PUBLIC_ADMIN_API_URL: https://example.web.val.run
+          NEXT_PUBLIC_PLATFORM_API_URL: https://platform.example.run.app

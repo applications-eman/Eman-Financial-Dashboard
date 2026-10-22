@@ -21,6 +21,6 @@ gcloud run deploy "$SERVICE" \
   --platform managed --allow-unauthenticated \
   --min-instances 0 --max-instances 3 --cpu 1 --memory 512Mi --concurrency 80 \
   --port 8080 \
-  --set-secrets "NEXT_PUBLIC_SUPABASE_URL=eman-supabase-url:latest,NEXT_PUBLIC_SUPABASE_ANON_KEY=eman-supabase-anon-key:latest,NEXT_PUBLIC_ADMIN_API_URL=eman-admin-api-url:latest"
+  --set-secrets "NEXT_PUBLIC_SUPABASE_URL=eman-supabase-url:latest,NEXT_PUBLIC_SUPABASE_ANON_KEY=eman-supabase-anon-key:latest,NEXT_PUBLIC_ADMIN_API_URL=eman-admin-api-url:latest,NEXT_PUBLIC_PLATFORM_API_URL=eman-platform-api-url:latest"
 
 gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format 'value(status.url)'
