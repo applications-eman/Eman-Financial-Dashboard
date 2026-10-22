@@ -192,35 +192,12 @@
     },
     {
       "id": "REVIEW",
-      "title": "Cart",
+      "title": "Check invoice",
       "terminal": true,
       "data": {
         "review_text": {
           "type": "string",
-          "__example__": "Customer: Al Noor Supermarket\n\n1. SHAMI - 5: 20 x 4.35 = 87.00"
-        },
-        "lines": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "title": {
-                "type": "string"
-              },
-              "description": {
-                "type": "string"
-              }
-            }
-          },
-          "__example__": [
-            {
-              "id": "0",
-              "title": "1. SHAMI - 5: 20 x 4.35"
-            }
-          ]
+          "__example__": "Customer: Al Noor Supermarket\n\n1. SHAMI - 5\n     20 x 4.35 = 87.00"
         }
       },
       "layout": {
@@ -231,51 +208,12 @@
             "text": "${data.review_text}"
           },
           {
-            "type": "TextBody",
-            "text": "To change or remove a product, choose it below. To add more products, tap the back arrow."
-          },
-          {
-            "type": "Dropdown",
-            "label": "Product in the cart",
-            "name": "line",
-            "required": false,
-            "data-source": "${data.lines}"
-          },
-          {
-            "type": "TextInput",
-            "label": "New quantity (optional)",
-            "name": "qty",
-            "input-type": "number",
-            "required": false
-          },
-          {
-            "type": "TextInput",
-            "label": "New price (optional)",
-            "name": "price",
-            "input-type": "number",
-            "required": false
-          },
-          {
             "type": "EmbeddedLink",
-            "text": "Change this product",
+            "text": "Remove last product",
             "on-click-action": {
               "name": "data_exchange",
               "payload": {
-                "step": "update_line",
-                "line": "${form.line}",
-                "qty": "${form.qty}",
-                "price": "${form.price}"
-              }
-            }
-          },
-          {
-            "type": "EmbeddedLink",
-            "text": "Remove this product",
-            "on-click-action": {
-              "name": "data_exchange",
-              "payload": {
-                "step": "remove_line",
-                "line": "${form.line}"
+                "step": "remove_last"
               }
             }
           },

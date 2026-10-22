@@ -180,44 +180,14 @@ test("flow: customer list, price rules, cart, review, confirm once", async () =>
   assert.match(String((await add({ price: "abc" })).data.error_message), /valid price/);
   assert.match(String((await add({ price: "4.51" })).data.error_message), /maximum allowed is 4.50/);
   assert.equal((await add({ price: "4.50" })).screen, "ITEMS"); // exactly the limit is fine
-  // remove the line that was just added (it is the only one), then build the real cart
-  const removed = await handleFlow(w.db, {
-    action: "data_exchange",
-    flow_token: t,
-    data: { action: "remove_line", line: "0" },
-  });
+  // remove the product that was just added (it is the only one), then build the real cart
+  const removed = await handleFlow(w.db, { action: "data_exchange", flow_token: t, data: { action: "remove_last" } });
   assert.match(String(removed.data.review_text), /empty/);
   await add({});
   await add({ qty: "5", price: "4.20" });
-  // change the first line, then look at the cart
-  const changed = await handleFlow(w.db, {
-    action: "data_exchange",
-    flow_token: t,
-    data: { action: "update_line", line: "0", qty: "10", price: "4.00" },
-  });
-  assert.equal(changed.screen, "REVIEW");
-  assert.match(
-    String(
-      (
-        await handleFlow(w.db, {
-          action: "data_exchange",
-          flow_token: t,
-          data: { action: "update_line", line: "0", price: "9" },
-        })
-      ).data.error_message,
-    ),
-    /maximum allowed/,
-  );
-  assert.match(
-    String(
-      (await handleFlow(w.db, { action: "data_exchange", flow_token: t, data: { action: "update_line", line: "7" } }))
-        .data.error_message,
-    ),
-    /choose the line/,
-  );
   const rev = await handleFlow(w.db, { action: "data_exchange", flow_token: t, data: { action: "open_cart" } });
   assert.equal(rev.screen, "REVIEW");
-  assert.match(String(rev.data.review_text), /Before VAT 61\.00\. VAT 9\.15\. Total 70\.15/);
+  assert.match(String(rev.data.review_text), /Before VAT: {2}61\.00\nVAT 15%: {2}9\.15\nTOTAL: {2}70\.15 SAR/);
 
   const done = await handleFlow(w.db, { action: "data_exchange", flow_token: t, data: { action: "confirm" } });
   assert.equal(done.screen, "SUCCESS");
@@ -747,8 +717,7 @@ test("flow: every answer matches the data the Flow declares for that screen (key
     price: "4",
   });
   await step("open cart", { action: "open_cart" });
-  await step("change line", { action: "update_line", line: "0", qty: "3", price: "4" });
-  await step("remove line", { action: "remove_line", line: "0" });
+  await step("remove last", { action: "remove_last" });
   await step("add again", { action: "add_item", category: w.category, product: w.product, qty: "2", price: "4" });
   await step("review", { action: "open_cart" });
   const ok = await step("confirm", { action: "confirm" });
@@ -771,8 +740,6 @@ test("flow: the step is understood even when its name did not arrive, and a dead
     price: "4",
   });
   assert.equal(added.screen, "ITEMS");
-  const nameless = await go("REVIEW", { line: "0", qty: "3", price: "4" }); // a line field means "change this line"
-  assert.equal(nameless.screen, "REVIEW");
   const named = await handleFlow(w.db, {
     action: "data_exchange",
     screen: "REVIEW",

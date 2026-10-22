@@ -127,26 +127,36 @@ async function itemsScreen(
   };
 }
 
-async function lineOptions(db: Db, lines: SessionLine[]): Promise<Opt[]> {
+/** The cart as a receipt preview: customer, each product with quantity and price, then the totals. */
+async function receiptText(db: Db, s: Session): Promise<string> {
+  const [c] = await db.query<{ name: string }>(`select name from customers where id=$1`, [s.customer_id]);
+  if (s.lines.length === 0)
+    return `Customer: ${c?.name ?? ""}\n\nThe cart is empty. Tap the back arrow to add products.`;
   const nm = await names(
     db,
-    lines.map((l) => l.product_id),
+    s.lines.map((l) => l.product_id),
   );
-  return lines.map((l, i) => {
-    const label = `${nm.get(l.product_id) ?? "Product"}: ${l.qty} x ${money(l.price)}`;
-    return { id: String(i), title: cut(`${i + 1}. ${label}`), description: cut(label, 300) };
-  });
+  const priced = s.lines.map((l) => ({ ...l, ...priceLine(l.qty, l.price) }));
+  const t = totals(priced);
+  const rows = priced.map(
+    (l, i) => `${i + 1}. ${nm.get(l.product_id) ?? "Product"}\n     ${l.qty} x ${money(l.price)} = ${money(l.sub)}`,
+  );
+  const line = "------------------------------";
+  return [
+    `Customer: ${c?.name ?? ""}`,
+    line,
+    rows.join("\n"),
+    line,
+    `Before VAT:  ${money(t.subtotal)}`,
+    `VAT 15%:  ${money(t.vat)}`,
+    `TOTAL:  ${money(t.total)} SAR`,
+  ].join("\n");
 }
 
 async function reviewScreen(db: Db, s: Session, error?: string): Promise<FlowResponse> {
-  const [c] = await db.query<{ name: string }>(`select name from customers where id=$1`, [s.customer_id]);
   return {
     screen: "REVIEW",
-    data: {
-      review_text: `Customer: ${c?.name ?? ""}\n\n${await cartText(db, s.lines)}`,
-      lines: orPlaceholder(await lineOptions(db, s.lines), "The cart is empty"),
-      ...(error ? { error_message: error } : {}),
-    },
+    data: { review_text: await receiptText(db, s), ...(error ? { error_message: error } : {}) },
   };
 }
 
@@ -166,7 +176,7 @@ export function stepOf(screen: string | undefined, d: Record<string, unknown>): 
   const named = String(d.step ?? d.action ?? "");
   if (named) return named;
   if (screen === "CUSTOMER") return "customer" in d ? "select_customer" : "";
-  if (screen === "REVIEW") return "line" in d ? "update_line" : "confirm";
+  if (screen === "REVIEW") return "confirm";
   if (screen === "ITEMS") {
     if (["product", "qty", "price"].some((k) => k in d)) return "add_item";
     if ("category" in d) return "select_category";
@@ -204,11 +214,7 @@ export async function handleFlow(db: Db, body: FlowBody): Promise<FlowResponse> 
 
   if (!s) {
     // the form expired: stay on the screen the person is on, with the message
-    if (body.screen === "REVIEW")
-      return {
-        screen: "REVIEW",
-        data: { review_text: "", lines: orPlaceholder([], "The cart is empty"), error_message: err("M22") },
-      };
+    if (body.screen === "REVIEW") return { screen: "REVIEW", data: { review_text: "", error_message: err("M22") } };
     return customerScreen(db, null, err("M22"));
   }
 
@@ -231,10 +237,8 @@ export async function handleFlow(db: Db, body: FlowBody): Promise<FlowResponse> 
       return addItem(db, s, token, d);
     case "open_cart":
       return reviewScreen(db, s);
-    case "update_line":
-      return updateLine(db, s, token, d);
-    case "remove_line":
-      return removeLine(db, s, token, d);
+    case "remove_last":
+      return removeLast(db, s, token);
     case "confirm": {
       const r = await submitRequest(db, token);
       if (!r.ok) return reviewScreen(db, s, err(r.code, r.vars));
@@ -293,33 +297,8 @@ async function addItem(db: Db, s: Session, token: string, d: Record<string, unkn
   return itemsScreen(db, { ...s, lines }, { category });
 }
 
-const lineIndex = (s: Session, d: Record<string, unknown>): number => {
-  const raw = firstOf(d.line);
-  const i = /^\d+$/.test(raw) ? Number(raw) : -1;
-  return i >= 0 && i < s.lines.length ? i : -1;
-};
-
-async function removeLine(db: Db, s: Session, token: string, d: Record<string, unknown>): Promise<FlowResponse> {
-  const i = lineIndex(s, d);
-  if (i < 0) return reviewScreen(db, s, "Please choose the line first.");
-  const lines = s.lines.filter((_, k) => k !== i);
-  await save(db, token, { lines });
-  return reviewScreen(db, { ...s, lines });
-}
-
-/** Change the quantity and/or the price of one line; an empty field keeps the old value. */
-async function updateLine(db: Db, s: Session, token: string, d: Record<string, unknown>): Promise<FlowResponse> {
-  const i = lineIndex(s, d);
-  const old = s.lines[i];
-  if (!old) return reviewScreen(db, s, "Please choose the line first.");
-  const blank = (v: unknown) => String(v ?? "").trim() === "";
-  const checked = await checkLine(db, {
-    product: old.product_id,
-    qty: blank(d.qty) ? old.qty : d.qty,
-    price: blank(d.price) ? old.price : d.price,
-  });
-  if (!checked.ok) return reviewScreen(db, s, checked.error);
-  const lines = s.lines.map((l, k) => (k === i ? { ...l, qty: checked.line.qty, price: checked.line.price } : l));
+async function removeLast(db: Db, s: Session, token: string): Promise<FlowResponse> {
+  const lines = s.lines.slice(0, -1);
   await save(db, token, { lines });
   return reviewScreen(db, { ...s, lines });
 }

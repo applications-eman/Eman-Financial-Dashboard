@@ -95,52 +95,17 @@ export function buildFlowJson() {
       },
       {
         id: "REVIEW",
-        title: "Cart",
+        title: "Check invoice",
         terminal: true,
-        data: {
-          review_text: str("Customer: Al Noor Supermarket\n\n1. SHAMI - 5: 20 x 4.35 = 87.00"),
-          lines: optionArray([{ id: "0", title: "1. SHAMI - 5: 20 x 4.35" }]),
-        },
+        data: { review_text: str("Customer: Al Noor Supermarket\n\n1. SHAMI - 5\n     20 x 4.35 = 87.00") },
         layout: {
           type: "SingleColumnLayout",
           children: [
             body("${data.review_text}"),
-            body("To change or remove a product, choose it below. To add more products, tap the back arrow."),
-            {
-              type: "Dropdown",
-              label: "Product in the cart",
-              name: "line",
-              required: false,
-              "data-source": "${data.lines}",
-            },
-            {
-              type: "TextInput",
-              label: "New quantity (optional)",
-              name: "qty",
-              "input-type": "number",
-              required: false,
-            },
-            {
-              type: "TextInput",
-              label: "New price (optional)",
-              name: "price",
-              "input-type": "number",
-              required: false,
-            },
             {
               type: "EmbeddedLink",
-              text: "Change this product",
-              "on-click-action": dataExchange({
-                step: "update_line",
-                line: "${form.line}",
-                qty: "${form.qty}",
-                price: "${form.price}",
-              }),
-            },
-            {
-              type: "EmbeddedLink",
-              text: "Remove this product",
-              "on-click-action": dataExchange({ step: "remove_line", line: "${form.line}" }),
+              text: "Remove last product",
+              "on-click-action": dataExchange({ step: "remove_last" }),
             },
             { type: "Footer", label: "Create invoice", "on-click-action": dataExchange({ step: "confirm" }) },
           ],
