@@ -15,6 +15,8 @@ export interface WorkerDeps {
   odoo: OdooPort;
   wa: WaPort;
   cashJournalId: number;
+  /** sales journal for the invoices; empty = Odoo's default sales journal (a separate test journal while testing) */
+  salesJournalId?: number | null;
   workerId: string;
   maxAttempts?: number;
   /** seconds until a request whose ZATCA answer is still pending is looked at again */
@@ -135,6 +137,7 @@ async function processJob(d: WorkerDeps, job: Job) {
         origin: `WA/${sm.code}/${job.ref_code}`,
         date: today,
         analyticId: sm.odoo_analytic_id ? Number(sm.odoo_analytic_id) : null,
+        journalId: d.salesJournalId ?? null,
         lines: job.lines.map((l) => ({
           productId: l.odoo_product_id,
           name: l.name,

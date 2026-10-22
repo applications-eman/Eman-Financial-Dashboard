@@ -50,6 +50,7 @@ if (missing.length === 0) {
     odoo,
     wa,
     cashJournalId: Number(need("ODOO_CASH_JOURNAL_ID")),
+    salesJournalId: process.env.ODOO_SALES_JOURNAL_ID ? Number(process.env.ODOO_SALES_JOURNAL_ID) : null,
     workerId: randomUUID(),
   };
   let running: Promise<number> | null = null;

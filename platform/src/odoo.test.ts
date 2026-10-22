@@ -29,6 +29,7 @@ test("requests follow the JSON-2 contract", async () => {
     origin: "WA/F/ABC",
     date: "2026-10-22",
     analyticId: 3,
+    journalId: 31,
     lines: [{ productId: 70, name: "SHAMI", quantity: 2, priceUnit: 4.5 }],
   });
   assert.equal(id, 501);
@@ -38,6 +39,7 @@ test("requests follow the JSON-2 contract", async () => {
   const vals = (calls[0].body.vals_list as Record<string, unknown>[])[0];
   assert.equal(vals.move_type, "out_invoice");
   assert.equal(vals.ref, "WA-ABC");
+  assert.equal(vals.journal_id, 31);
   assert.deepEqual(vals.invoice_line_ids, [
     [0, 0, { product_id: 70, name: "SHAMI", quantity: 2, price_unit: 4.5, analytic_distribution: { "3": 100 } }],
   ]);

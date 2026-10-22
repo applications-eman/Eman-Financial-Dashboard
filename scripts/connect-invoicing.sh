@@ -24,6 +24,7 @@ put_secret eman-platform-odoo-url "$(ask 'Odoo address, e.g. https://yourcompany
 put_secret eman-platform-odoo-db "$(ask 'Odoo database name (usually the first part of the address)')"
 put_secret eman-platform-odoo-key "$(ask_hidden 'Odoo API key of the invoicing service user')"
 put_secret eman-platform-cash-journal "$(ask 'Odoo id of the CASH journal that every invoice is paid into (a number)')"
+SALES_JOURNAL="$(ask 'Odoo id of the SALES journal for these invoices (press Enter to use the default sales journal; use a test journal while testing)')"
 
 echo "== WhatsApp (Meta) =="
 WA_PHONE="$(ask 'WhatsApp Phone number ID (Meta > WhatsApp > API setup)')"
@@ -64,7 +65,7 @@ done
 # CPU stays on between requests so the queue keeps working right after a salesman confirms; the instance still scales to zero when idle
 gcloud run services update "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --no-cpu-throttling --min-instances 0 \
   --update-secrets "ODOO_URL=eman-platform-odoo-url:latest,ODOO_DB=eman-platform-odoo-db:latest,ODOO_API_KEY=eman-platform-odoo-key:latest,ODOO_CASH_JOURNAL_ID=eman-platform-cash-journal:latest,WA_PHONE_NUMBER_ID=eman-platform-wa-phone-id:latest,WA_TOKEN=eman-platform-wa-token:latest,FLOW_ID=eman-platform-flow-id:latest,META_APP_SECRET=eman-platform-app-secret:latest,FLOW_PRIVATE_KEY=eman-platform-flow-key:latest,TICK_SECRET=eman-platform-tick-secret:latest" \
-  --update-env-vars "FLOW_MODE=${FLOW_MODE:-draft}"
+  --update-env-vars "FLOW_MODE=${FLOW_MODE:-draft},ODOO_SALES_JOURNAL_ID=${SALES_JOURNAL}"
 
 URL="$(gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format 'value(status.url)')"
 TICK="$(gcloud secrets versions access latest --secret eman-platform-tick-secret --project "$PROJECT_ID")"
