@@ -36,6 +36,11 @@ interface Opt {
   description?: string;
 }
 
+/** Meta's lists must never be empty (the phone silently refuses the screen), so an empty list shows one placeholder row. */
+export const PLACEHOLDER_ID = "none";
+const orPlaceholder = (opts: { id: string; title: string; description?: string }[], title: string) =>
+  opts.length > 0 ? opts : [{ id: PLACEHOLDER_ID, title }];
+
 async function customerOptions(db: Db, salesmanId: string): Promise<Opt[]> {
   const rows = await db.query<{ id: string; name: string }>(
     `select c.id, c.name from salesman_customers sc join customers c on c.id = sc.customer_id
@@ -97,7 +102,10 @@ async function cartText(db: Db, lines: SessionLine[]): Promise<string> {
 async function customerScreen(db: Db, s: Session | null, error?: string): Promise<FlowResponse> {
   return {
     screen: "CUSTOMER",
-    data: { customers: s ? await customerOptions(db, s.salesman_id) : [], ...(error ? { error_message: error } : {}) },
+    data: {
+      customers: orPlaceholder(s ? await customerOptions(db, s.salesman_id) : [], "No customers available"),
+      ...(error ? { error_message: error } : {}),
+    },
   };
 }
 
@@ -110,8 +118,8 @@ async function itemsScreen(
   return {
     screen: "ITEMS",
     data: {
-      categories: await categoryOptions(db),
-      products: await productOptions(db, category),
+      categories: orPlaceholder(await categoryOptions(db), "No categories available"),
+      products: orPlaceholder(await productOptions(db, category), "Choose a category first"),
       cart_text: await cartText(db, s.lines),
       ...(o.error ? { error_message: o.error } : {}),
     },
@@ -154,11 +162,11 @@ export async function handleFlow(db: Db, body: FlowBody): Promise<FlowResponse> 
     return customerScreen(db, s);
   }
 
-  if (!s)
-    return {
-      screen: body.screen === "REVIEW" ? "REVIEW" : "CUSTOMER",
-      data: { review_text: "", customers: [], error_message: err("M22") },
-    };
+  if (!s) {
+    // the form expired: stay on the screen the person is on, with the message
+    if (body.screen === "REVIEW") return { screen: "REVIEW", data: { review_text: "", error_message: err("M22") } };
+    return customerScreen(db, null, err("M22"));
+  }
 
   if (s.request_id) {
     // already confirmed (double tap): finish the Flow again, nothing new is created

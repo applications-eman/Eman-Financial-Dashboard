@@ -652,3 +652,96 @@ test("test mode: every WhatsApp message is tagged, and untagged in real mode", a
   await tagged.sendText(PHONE, "hello");
   assert.equal(wa.sent.at(-1)?.text, "hello");
 });
+
+test("flow: no list sent to the phone is ever empty (Meta silently refuses such a screen)", async () => {
+  const w = await world();
+  const t = await session(w);
+  const lists = (r: { data: Record<string, unknown> }) => Object.values(r.data).filter(Array.isArray) as unknown[][];
+  const noEmpty = (name: string, r: { data: Record<string, unknown> }) => {
+    for (const l of lists(r)) assert.ok(l.length > 0, `${name}: an empty list`);
+  };
+  noEmpty("INIT", await handleFlow(w.db, { action: "INIT", flow_token: t }));
+  const items = await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: t,
+    data: { action: "select_customer", customer: w.customer },
+  });
+  assert.equal(items.screen, "ITEMS");
+  noEmpty("ITEMS before a category", items); // products list is the placeholder
+  assert.equal((items.data.products as { id: string }[])[0].id, "none");
+  const withCat = await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: t,
+    data: { action: "select_category", category: w.category },
+  });
+  noEmpty("ITEMS with a category", withCat);
+  assert.equal((withCat.data.products as { id: string }[])[0].id, w.product);
+  // choosing the placeholder is refused politely
+  const bad = await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: t,
+    data: { action: "submit_item", category: w.category, product: "none", qty: "1", price: "1", after: "add_more" },
+  });
+  assert.equal(bad.screen, "ITEMS");
+  assert.match(String(bad.data.error_message), /choose a product/i);
+  // no customers assigned / expired form
+  await w.db.query(`delete from salesman_customers`);
+  const none = await handleFlow(w.db, { action: "INIT", flow_token: t });
+  noEmpty("INIT without customers", none);
+  assert.match(String(none.data.error_message), /No customers are assigned/);
+  noEmpty("expired", await handleFlow(w.db, { action: "INIT", flow_token: "nope" }));
+});
+
+test("flow: every answer matches the data the Flow declares for that screen (keys and types)", async () => {
+  const w = await world();
+  const t = await session(w);
+  const flow = buildFlowJson();
+  const check = (name: string, r: { screen?: string; data: Record<string, unknown> }) => {
+    if (r.screen === "SUCCESS" || r.screen === undefined) return;
+    const screen = flow.screens.find((s) => s.id === r.screen);
+    assert.ok(screen, `${name}: unknown screen ${r.screen}`);
+    const declared = screen.data as unknown as Record<string, { type: string }>;
+    const sent = Object.keys(r.data).filter((k) => k !== "error_message");
+    for (const k of Object.keys(declared)) assert.ok(sent.includes(k), `${name}: ${r.screen} is missing "${k}"`);
+    for (const k of sent) {
+      assert.ok(k in declared, `${name}: ${r.screen} got undeclared "${k}"`);
+      const v = r.data[k];
+      assert.equal(Array.isArray(v) ? "array" : typeof v, declared[k].type, `${name}: "${k}" has the wrong type`);
+    }
+  };
+  const step = async (name: string, data: Record<string, unknown>, action = "data_exchange") => {
+    const r = await handleFlow(w.db, { action, flow_token: t, data });
+    check(name, r);
+    return r;
+  };
+  check("INIT", await handleFlow(w.db, { action: "INIT", flow_token: t }));
+  await step("customer", { action: "select_customer", customer: w.customer });
+  await step("category", { action: "select_category", category: w.category });
+  await step("bad price", {
+    action: "submit_item",
+    category: w.category,
+    product: w.product,
+    qty: "1",
+    price: "99",
+    after: "add_more",
+  });
+  await step("add more", {
+    action: "submit_item",
+    category: w.category,
+    product: w.product,
+    qty: "2",
+    price: "4",
+    after: "add_more",
+  });
+  await step("remove", { action: "submit_item", category: w.category, after: "remove_last" });
+  await step("review", {
+    action: "submit_item",
+    category: w.category,
+    product: w.product,
+    qty: "2",
+    price: "4",
+    after: "add_review",
+  });
+  const ok = await step("confirm", { action: "confirm" });
+  assert.equal(ok.screen, "SUCCESS");
+});
