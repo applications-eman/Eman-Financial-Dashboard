@@ -79,7 +79,7 @@ export class FakeOdoo implements OdooPort {
   async zatcaMessage() {
     return this.zatcaText;
   }
-  stalePdf = false;
+  stalePdf = false as boolean;
   async renderFreshPdf(id: number) {
     this.calls.push("pdf");
     const m = this.get(id);
