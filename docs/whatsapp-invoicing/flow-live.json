@@ -117,22 +117,6 @@
         "cart_text": {
           "type": "string",
           "__example__": "Your cart is empty."
-        },
-        "category_init": {
-          "type": "string",
-          "__example__": ""
-        },
-        "product_init": {
-          "type": "string",
-          "__example__": ""
-        },
-        "qty_init": {
-          "type": "string",
-          "__example__": ""
-        },
-        "price_init": {
-          "type": "string",
-          "__example__": ""
         }
       },
       "layout": {
@@ -152,7 +136,6 @@
             "name": "category",
             "required": false,
             "data-source": "${data.categories}",
-            "init-value": "${data.category_init}",
             "on-select-action": {
               "name": "data_exchange",
               "payload": {
@@ -166,24 +149,21 @@
             "label": "Product",
             "name": "product",
             "required": false,
-            "data-source": "${data.products}",
-            "init-value": "${data.product_init}"
+            "data-source": "${data.products}"
           },
           {
             "type": "TextInput",
             "label": "Quantity",
             "name": "qty",
             "input-type": "number",
-            "required": false,
-            "init-value": "${data.qty_init}"
+            "required": false
           },
           {
             "type": "TextInput",
             "label": "Price before VAT",
             "name": "price",
             "input-type": "number",
-            "required": false,
-            "init-value": "${data.price_init}"
+            "required": false
           },
           {
             "type": "RadioButtonsGroup",

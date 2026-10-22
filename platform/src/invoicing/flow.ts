@@ -113,10 +113,6 @@ async function itemsScreen(
       categories: await categoryOptions(db),
       products: await productOptions(db, category),
       cart_text: await cartText(db, s.lines),
-      category_init: category ?? "",
-      product_init: o.keep?.product ?? "",
-      qty_init: o.keep?.qty ?? "",
-      price_init: o.keep?.price ?? "",
       ...(o.error ? { error_message: o.error } : {}),
     },
   };

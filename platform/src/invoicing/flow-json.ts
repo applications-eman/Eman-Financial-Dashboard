@@ -50,10 +50,6 @@ export function buildFlowJson() {
           categories: optionArray([{ id: "k1", title: "Shami" }]),
           products: optionArray([{ id: "p1", title: "SHAMI - 5", description: "Maximum 4.50 before VAT" }]),
           cart_text: str("Your cart is empty."),
-          category_init: str(""),
-          product_init: str(""),
-          qty_init: str(""),
-          price_init: str(""),
         },
         layout: {
           type: "SingleColumnLayout",
@@ -66,7 +62,6 @@ export function buildFlowJson() {
               name: "category",
               required: false,
               "data-source": "${data.categories}",
-              "init-value": "${data.category_init}",
               "on-select-action": dataExchange({ action: "select_category", category: "${form.category}" }),
             },
             {
@@ -75,7 +70,6 @@ export function buildFlowJson() {
               name: "product",
               required: false,
               "data-source": "${data.products}",
-              "init-value": "${data.product_init}",
             },
             {
               type: "TextInput",
@@ -83,7 +77,6 @@ export function buildFlowJson() {
               name: "qty",
               "input-type": "number",
               required: false,
-              "init-value": "${data.qty_init}",
             },
             {
               type: "TextInput",
@@ -91,7 +84,6 @@ export function buildFlowJson() {
               name: "price",
               "input-type": "number",
               required: false,
-              "init-value": "${data.price_init}",
             },
             {
               type: "RadioButtonsGroup",
