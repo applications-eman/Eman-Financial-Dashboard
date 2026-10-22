@@ -191,7 +191,14 @@ export async function handleFlow(db: Db, body: FlowBody): Promise<FlowResponse> 
     if (s.request_id) return customerScreen(db, null, "This invoice was already submitted.");
     const options = await customerOptions(db, s.salesman_id);
     if (options.length === 0) return customerScreen(db, s, err("M04"));
-    if (body.action === "BACK" && s.customer_id) return itemsScreen(db, s);
+    if (body.action === "BACK" && body.screen === "ITEMS") return itemsScreen(db, s);
+    // back on the customer screen: the invoice starts again from zero (no customer, empty cart)
+    if (body.action === "BACK") {
+      await db.query(
+        `update flow_sessions set customer_id = null, lines = '[]'::jsonb, updated_at = now() where token = $1`,
+        [token],
+      );
+    }
     return customerScreen(db, s);
   }
 

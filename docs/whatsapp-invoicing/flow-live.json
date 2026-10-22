@@ -10,6 +10,7 @@
     {
       "id": "CUSTOMER",
       "title": "Customer",
+      "refresh_on_back": true,
       "data": {
         "customers": {
           "type": "array",

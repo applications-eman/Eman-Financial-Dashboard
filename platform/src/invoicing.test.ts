@@ -788,3 +788,20 @@ test("flow: the step is understood even when its name did not arrive, and a dead
   assert.equal(lost.screen, "CUSTOMER");
   assert.match(String(lost.data.error_message), /could not be read/);
 });
+
+test("flow: going back to the customer screen starts the invoice from zero; back from the cart keeps it", async () => {
+  const w = await world();
+  const t = await session(w);
+  const send = (action: string, screen?: string, data?: Record<string, unknown>) =>
+    handleFlow(w.db, { action, screen, flow_token: t, data });
+  await send("data_exchange", "CUSTOMER", { step: "select_customer", customer: w.customer });
+  await addToCart(w.db, t, { category: w.category, product: w.product, qty: "2", price: "4" });
+  const fromCart = await send("BACK", "ITEMS");
+  assert.equal(fromCart.screen, "ITEMS");
+  assert.match(String(fromCart.data.cart_text), /1\./);
+  const reset = await send("BACK", "CUSTOMER");
+  assert.equal(reset.screen, "CUSTOMER");
+  const [row] = await w.db.query(`select customer_id, lines from flow_sessions where token=$1`, [t]);
+  assert.equal(row.customer_id, null);
+  assert.deepEqual(row.lines, []);
+});

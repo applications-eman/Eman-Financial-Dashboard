@@ -23,6 +23,7 @@ export function buildFlowJson() {
       {
         id: "CUSTOMER",
         title: "Customer",
+        refresh_on_back: true,
         data: { customers: optionArray([{ id: "c1", title: "Al Noor Supermarket" }]) },
         layout: {
           type: "SingleColumnLayout",
