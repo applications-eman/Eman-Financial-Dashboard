@@ -59,7 +59,15 @@ export async function drain(d: WorkerDeps): Promise<number> {
       // paused by the emergency switch: take nothing new
       if ((await setting(d.db, "kill_switch", false)) === true) return handled;
       // test mode must never write to the real sales journal: without a test journal nothing is processed
-      if ((await setting(d.db, "test_mode", true)) === true && !d.salesJournalId) return handled;
+      if ((await setting(d.db, "test_mode", true)) === true && !d.salesJournalId) {
+        console.warn(
+          JSON.stringify({
+            severity: "WARNING",
+            message: "invoices are waiting: test mode is on but ODOO_SALES_JOURNAL_ID (the test journal) is not set",
+          }),
+        );
+        return handled;
+      }
       const [{ ok }] = await d.db.query<{ ok: boolean }>(`select public.acquire_lock($1,$2,150) as ok`, [
         LOCK,
         d.workerId,
