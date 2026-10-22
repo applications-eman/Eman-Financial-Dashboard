@@ -8,7 +8,7 @@ Nothing below changes the old Odoo 17 system, the expense capture, or the curren
 
 ## Steps (in this order)
 1. **Odoo, one-time setup** (the new Odoo 19/20 database)
-   - Create a user for the service (not a salesman) with the right to create and post customer invoices and register payments. Create its **API key** (Persistent).
+   - Done already: company region, sandbox onboarding of the test journal "WhatsApp Test" (id 23), test customer and product.
    - ZATCA: onboard the sales journal (sandbox first). Until a journal is onboarded, invoices cannot be sent to ZATCA.
 2. **Products and customers**: add them in the dashboard (WhatsApp Platform): categories, products with the maximum price, customers, salesmen and each salesman's customers. Then Settings > *Link customers and products to Odoo*.
 3. **Odoo key**: Odoo > your avatar > Preferences > Account Security > New API Key (description "Eman platform", duration 1 Month while testing). Before the real go-live use a dedicated bot user, as Odoo recommends (it counts as one more Odoo user; ask Odoo whether API-only users are billed).
