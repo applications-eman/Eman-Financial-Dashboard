@@ -6,9 +6,11 @@ export interface SupabaseCfg {
   fetch: typeof fetch;
 }
 
+// Older keys are JWTs (eyJ...) and are also sent as "Authorization: Bearer". Newer "secret" keys (sb_secret_...) are not JWTs:
+// they go in the apikey header only.
 const headers = (c: SupabaseCfg, extra: Record<string, string> = {}) => ({
   apikey: c.serviceKey,
-  authorization: `Bearer ${c.serviceKey}`,
+  ...(c.serviceKey.startsWith("sb_") ? {} : { authorization: `Bearer ${c.serviceKey}` }),
   "content-type": "application/json",
   ...extra,
 });

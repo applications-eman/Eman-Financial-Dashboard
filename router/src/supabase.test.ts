@@ -75,3 +75,17 @@ test("seen store: first time false, repeat true; forget lets a retry through", a
   await s.forget(["w1"]);
   assert.equal(await s.seen("w1"), false);
 });
+
+test("both key styles work: JWT keys are also sent as Bearer, sb_secret keys only as apikey", async () => {
+  const sent: Record<string, string>[] = [];
+  const f = (async (_url: string, init: RequestInit) => {
+    sent.push(init.headers as Record<string, string>);
+    return json([]);
+  }) as unknown as typeof fetch;
+  await new SupabaseRegistry({ url: "https://p.supabase.co", serviceKey: "eyJhbGciOi.old", fetch: f }, 0).routes();
+  assert.equal(sent[0].authorization, "Bearer eyJhbGciOi.old");
+  sent.length = 0;
+  await new SupabaseRegistry({ url: "https://p.supabase.co", serviceKey: "sb_secret_abc", fetch: f }, 0).routes();
+  assert.equal(sent[0].apikey, "sb_secret_abc");
+  assert.equal(sent[0].authorization, undefined);
+});
