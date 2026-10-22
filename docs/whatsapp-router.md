@@ -16,8 +16,15 @@ sender's WhatsApp number. Code: `router/`. Tests: `cd router && npm test` (14 te
 
 Not routed here: the encrypted WhatsApp Flow data requests. Those go straight to the Flow's own address.
 
-## Registry (first version: one secret)
-Stored as the secret `eman-router-registry`, one line of JSON:
+## Registry
+Normal mode: the router reads two tables of the platform database (`wa_targets`, `wa_numbers`), cached 30 seconds, and keeps the
+last good copy for up to 24 hours if the database is briefly unreachable. Duplicate message ids are kept in `wa_messages_seen`.
+The admin screen manages these tables. Add a service or a number = no redeploy.
+
+Fallback mode (database not set up yet): one secret.
+
+### Fallback: one secret
+Environment variable `ROUTER_REGISTRY_JSON`, one line of JSON:
 
 ```json
 {"targets":[{"id":"expense","name":"Expense capture","url":"https://YOUR-EXPENSE-SERVICE/whatsapp/webhook","enabled":true}],

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploys the WhatsApp router to Cloud Run. Safe to run any time: it does NOT change anything in Meta.
-# It asks for the three secrets once (typing is hidden) and stores them in Secret Manager.
+# It asks for the four secrets once (typing is hidden) and stores them in Secret Manager.
 #   PROJECT_ID=eman-expenses REGION=europe-west1 ./scripts/deploy-router.sh
 set -euo pipefail
 
@@ -28,14 +28,16 @@ if ! secret_exists eman-router-verify-token || [ "${RESET_SECRETS:-}" = "1" ]; t
   [ -n "$V" ] || { V="$(openssl rand -hex 24)"; echo "Generated verify token: $V   (you type this in Meta later)"; }
   put_secret eman-router-verify-token "$V"
 fi
-if ! secret_exists eman-router-registry || [ "${RESET_SECRETS:-}" = "1" ]; then
-  echo "Paste the registry as ONE line of JSON (see docs/whatsapp-router.md), then press Enter:"
-  read -rs V; echo; put_secret eman-router-registry "$V"
+if ! secret_exists eman-router-supabase-url || [ "${RESET_SECRETS:-}" = "1" ]; then
+  read -rp "Platform database address (Supabase project URL, https://xxxx.supabase.co): " V; put_secret eman-router-supabase-url "$V"
+fi
+if ! secret_exists eman-router-supabase-key || [ "${RESET_SECRETS:-}" = "1" ]; then
+  read -rsp "Platform database SERVICE ROLE key (Supabase > Project Settings > API; typing is hidden): " V; echo; put_secret eman-router-supabase-key "$V"
 fi
 
 # let the service read the secrets
 PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format 'value(projectNumber)')"
-for S in eman-router-meta-app-secret eman-router-verify-token eman-router-registry; do
+for S in eman-router-meta-app-secret eman-router-verify-token eman-router-supabase-url eman-router-supabase-key; do
   gcloud secrets add-iam-policy-binding "$S" --project "$PROJECT_ID" \
     --member "serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" --role roles/secretmanager.secretAccessor >/dev/null
 done
@@ -46,7 +48,7 @@ gcloud run deploy "$SERVICE" \
   --image "$IMAGE" --project "$PROJECT_ID" --region "$REGION" \
   --platform managed --allow-unauthenticated \
   --min-instances 0 --max-instances 3 --cpu 1 --memory 256Mi --concurrency 80 --port 8080 \
-  --set-secrets "META_APP_SECRET=eman-router-meta-app-secret:latest,META_VERIFY_TOKEN=eman-router-verify-token:latest,ROUTER_REGISTRY_JSON=eman-router-registry:latest"
+  --set-secrets "META_APP_SECRET=eman-router-meta-app-secret:latest,META_VERIFY_TOKEN=eman-router-verify-token:latest,SUPABASE_URL=eman-router-supabase-url:latest,SUPABASE_SERVICE_KEY=eman-router-supabase-key:latest"
 
 URL="$(gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" --format 'value(status.url)')"
 echo

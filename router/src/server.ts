@@ -1,5 +1,6 @@
 import { MemorySeenStore, registryFromJson } from "./registry.ts";
 import { handleWebhook, verifyChallenge } from "./router.ts";
+import { SupabaseRegistry, SupabaseSeenStore } from "./supabase.ts";
 import { createServer } from "node:http";
 
 const need = (k: string) => {
@@ -10,8 +11,13 @@ const need = (k: string) => {
 
 const appSecret = need("META_APP_SECRET");
 const verifyToken = need("META_VERIFY_TOKEN");
-const registry = registryFromJson(need("ROUTER_REGISTRY_JSON"));
-const seen = new MemorySeenStore();
+// Normal mode: the lists live in the platform database (managed from the admin screen).
+// Fallback mode (no database yet): the lists come from one secret, ROUTER_REGISTRY_JSON.
+const dbUrl = process.env.SUPABASE_URL;
+const dbKey = process.env.SUPABASE_SERVICE_KEY;
+const db = dbUrl && dbKey ? { url: dbUrl.replace(/\/$/, ""), serviceKey: dbKey, fetch } : null;
+const registry = db ? new SupabaseRegistry(db) : registryFromJson(need("ROUTER_REGISTRY_JSON"));
+const seen = db ? new SupabaseSeenStore(db) : new MemorySeenStore();
 const log = (event: string, data?: Record<string, unknown>) => console.log(JSON.stringify({ event, ...data }));
 
 createServer(async (req, res) => {
