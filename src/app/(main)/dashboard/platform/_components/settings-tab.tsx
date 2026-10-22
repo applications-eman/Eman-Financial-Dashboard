@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { platform } from "@/lib/platform-api";
 
+import { OdooCard } from "./odoo-card";
 import { change } from "./use-platform";
 
 const NUMBER_FIELDS: { key: string; label: string; hint: string }[] = [
@@ -51,6 +52,7 @@ export function SettingsTab() {
 
   return (
     <div className="flex max-w-xl flex-col gap-5">
+      <OdooCard />
       <div className="flex items-start justify-between gap-4 rounded-lg border border-destructive/40 p-3">
         <div className="space-y-1">
           <Label htmlFor="kill">Stop all new invoices (emergency switch)</Label>

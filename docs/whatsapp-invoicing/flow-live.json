@@ -1,0 +1,270 @@
+{
+  "version": "6.0",
+  "data_api_version": "3.0",
+  "routing_model": {
+    "CUSTOMER": [
+      "ITEMS"
+    ],
+    "ITEMS": [
+      "REVIEW"
+    ],
+    "REVIEW": []
+  },
+  "screens": [
+    {
+      "id": "CUSTOMER",
+      "title": "Customer",
+      "data": {
+        "customers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            }
+          },
+          "__example__": [
+            {
+              "id": "c1",
+              "title": "Al Noor Supermarket"
+            }
+          ]
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Choose the customer"
+          },
+          {
+            "type": "Dropdown",
+            "label": "Customer",
+            "name": "customer",
+            "required": true,
+            "data-source": "${data.customers}"
+          },
+          {
+            "type": "Footer",
+            "label": "Continue",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "action": "select_customer",
+                "customer": "${form.customer}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "ITEMS",
+      "title": "Invoice",
+      "data": {
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            }
+          },
+          "__example__": [
+            {
+              "id": "k1",
+              "title": "Shami"
+            }
+          ]
+        },
+        "products": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              }
+            }
+          },
+          "__example__": [
+            {
+              "id": "p1",
+              "title": "SHAMI - 5",
+              "description": "Maximum 4.50 before VAT"
+            }
+          ]
+        },
+        "cart_text": {
+          "type": "string",
+          "__example__": "Your cart is empty."
+        },
+        "category_init": {
+          "type": "string",
+          "__example__": ""
+        },
+        "product_init": {
+          "type": "string",
+          "__example__": ""
+        },
+        "qty_init": {
+          "type": "string",
+          "__example__": ""
+        },
+        "price_init": {
+          "type": "string",
+          "__example__": ""
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Your invoice"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.cart_text}"
+          },
+          {
+            "type": "Dropdown",
+            "label": "Category",
+            "name": "category",
+            "required": false,
+            "data-source": "${data.categories}",
+            "init-value": "${data.category_init}",
+            "on-select-action": {
+              "name": "data_exchange",
+              "payload": {
+                "action": "select_category",
+                "category": "${form.category}"
+              }
+            }
+          },
+          {
+            "type": "Dropdown",
+            "label": "Product",
+            "name": "product",
+            "required": false,
+            "data-source": "${data.products}",
+            "init-value": "${data.product_init}"
+          },
+          {
+            "type": "TextInput",
+            "label": "Quantity",
+            "name": "qty",
+            "input-type": "number",
+            "required": false,
+            "init-value": "${data.qty_init}"
+          },
+          {
+            "type": "TextInput",
+            "label": "Price before VAT",
+            "name": "price",
+            "input-type": "number",
+            "required": false,
+            "init-value": "${data.price_init}"
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "label": "What next?",
+            "name": "after",
+            "required": true,
+            "init-value": "add_more",
+            "data-source": [
+              {
+                "id": "add_more",
+                "title": "Add and add another product"
+              },
+              {
+                "id": "add_review",
+                "title": "Add and go to review"
+              },
+              {
+                "id": "review_only",
+                "title": "Go to review"
+              },
+              {
+                "id": "remove_last",
+                "title": "Remove the last product"
+              }
+            ]
+          },
+          {
+            "type": "Footer",
+            "label": "Continue",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "action": "submit_item",
+                "category": "${form.category}",
+                "product": "${form.product}",
+                "qty": "${form.qty}",
+                "price": "${form.price}",
+                "after": "${form.after}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "REVIEW",
+      "title": "Please check",
+      "terminal": true,
+      "data": {
+        "review_text": {
+          "type": "string",
+          "__example__": "Customer: Al Noor Supermarket\n\n1. SHAMI - 5: 20 x 4.35 = 87.00"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Please check"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.review_text}"
+          },
+          {
+            "type": "Footer",
+            "label": "Confirm invoice",
+            "on-click-action": {
+              "name": "data_exchange",
+              "payload": {
+                "action": "confirm"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

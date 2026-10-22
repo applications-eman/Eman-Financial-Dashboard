@@ -2,8 +2,10 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { z } from "zod";
 
-import { type Actor, type AuthCfg, actorFor, canWrite, verifyToken } from "./auth.ts";
+import { type Actor, type AuthCfg, actorFor, canDecideApprovals, canWrite, verifyToken } from "./auth.ts";
 import type { Db } from "./db.ts";
+import { msg } from "./invoicing/messages.ts";
+import { type InvoicingDeps, mountInvoicing } from "./invoicing/routes.ts";
 import { isSafeTargetUrl } from "./ssrf.ts";
 import { randomBytes } from "node:crypto";
 
@@ -22,6 +24,8 @@ export interface AppDeps {
   auth: AuthCfg;
   allowedOrigins: string[];
   fetch?: typeof fetch;
+  /** present when Odoo and WhatsApp are configured */
+  invoicing?: InvoicingDeps;
 }
 
 type Vars = { Variables: { actor: Actor } };
@@ -88,6 +92,7 @@ export function createApp(deps: AppDeps) {
   );
 
   app.get("/health", (c) => c.json({ ok: true }));
+  if (deps.invoicing) mountInvoicing(app, db, deps.invoicing);
 
   app.onError((e, c) => {
     if (e instanceof HttpError) return c.json({ error: e.code, message: e.message }, e.status as 400);
@@ -111,7 +116,11 @@ export function createApp(deps: AppDeps) {
     if (!claims) throw new HttpError(401, "unauthorized", "Please sign in again.");
     const actor = await actorFor(db, claims);
     if (!actor) throw new HttpError(403, "not_allowed", "Your account is not allowed to use the platform.");
-    if (c.req.method !== "GET" && !canWrite(actor.role))
+    const deciding =
+      c.req.method === "POST" &&
+      /^\/admin\/approvals\/[^/]+\/decide$/.test(c.req.path) &&
+      canDecideApprovals(actor.role);
+    if (c.req.method !== "GET" && !canWrite(actor.role) && !deciding)
       throw new HttpError(403, "read_only", "Your role can view but not change.");
     c.set("actor", actor);
     await next();
@@ -822,6 +831,151 @@ export function createApp(deps: AppDeps) {
       return { created, updated, priceChanges };
     });
     return c.json(res);
+  });
+
+  // ================================================================ Odoo connection, invoices, approvals
+  app.get("/admin/odoo/status", async (c) => {
+    if (!deps.invoicing) return c.json({ configured: false });
+    try {
+      return c.json({ configured: true, company: await deps.invoicing.odoo.ping() });
+    } catch (e) {
+      return c.json({ configured: true, error: errorText(e) });
+    }
+  });
+
+  // Links customers and products to their Odoo records (by VAT number, then exact name). Ambiguous or missing ones are listed.
+  app.post("/admin/odoo/link", async (c) => {
+    const actor = c.get("actor");
+    if (!deps.invoicing) throw new HttpError(409, "odoo_not_configured", "Odoo is not connected to the platform yet.");
+    const odoo = deps.invoicing.odoo;
+    const result = {
+      customers: { linked: 0, unmatched: [] as string[] },
+      products: { linked: 0, unmatched: [] as string[] },
+    };
+    const customers = await db.query<{ id: string; name: string; vat: string | null }>(
+      `select id, name, vat from customers where odoo_partner_id is null and status='active' order by name limit 500`,
+    );
+    for (const r of customers) {
+      const id = await odoo.findPartner({ vat: r.vat, name: r.name });
+      try {
+        if (!id) throw new Error("none");
+        await db.query(`update customers set odoo_partner_id=$2, synced_at=now() where id=$1`, [r.id, id]);
+        result.customers.linked++;
+      } catch {
+        result.customers.unmatched.push(r.name);
+      }
+    }
+    const products = await db.query<{ id: string; name: string }>(
+      `select id, name from products where odoo_product_id is null and status='active' order by name limit 500`,
+    );
+    for (const r of products) {
+      const id = await odoo.findProduct(r.name);
+      try {
+        if (!id) throw new Error("none");
+        await db.query(`update products set odoo_product_id=$2 where id=$1`, [r.id, id]);
+        result.products.linked++;
+      } catch {
+        result.products.unmatched.push(r.name);
+      }
+    }
+    await db.tx((t) =>
+      audit(t, actor, "link_odoo", "odoo", null, null, {
+        customers: result.customers.linked,
+        products: result.products.linked,
+      }),
+    );
+    return c.json(result);
+  });
+
+  app.get("/admin/requests", async (c) => {
+    const status = c.req.query("status");
+    const limit = Math.min(Number(c.req.query("limit") ?? 100) || 100, 500);
+    return c.json(
+      await db.query(
+        `select r.id, r.ref_code, s.name as salesman, c.name as customer, r.total, r.status, r.invoice_number, r.zatca_status,
+                r.error_code, r.error_detail, r.attempts, r.created_at, r.finished_at
+           from invoice_requests r join salesmen s on s.id = r.salesman_id join customers c on c.id = r.customer_id
+          where ($1::text is null or r.status = $1) order by r.created_at desc limit $2`,
+        [status ?? null, limit],
+      ),
+    );
+  });
+
+  app.get("/admin/requests/:id/events", async (c) =>
+    c.json(
+      await db.query(`select at, kind, detail from invoice_request_events where request_id=$1 order by id`, [
+        uuid.parse(c.req.param("id")),
+      ]),
+    ),
+  );
+
+  app.post("/admin/requests/:id/retry", async (c) => {
+    const actor = c.get("actor");
+    const id = uuid.parse(c.req.param("id"));
+    await db.tx(async (t) => {
+      const r = await t.query(
+        `update invoice_requests set status='queued', queued_at=now(), lease_until=null, finished_at=null, error_code=null, error_detail=null
+          where id=$1 and status='failed' returning id`,
+        [id],
+      );
+      if (!r.length) throw new HttpError(409, "wrong_state", "Only failed requests can be retried.");
+      await t.query(`insert into invoice_request_events (request_id, kind, detail) values ($1,'retry',$2)`, [
+        id,
+        JSON.stringify({ by: actor.email }),
+      ]);
+      await audit(t, actor, "retry", "invoice_request", id, null, null);
+    });
+    deps.invoicing?.kick();
+    return c.json({ ok: true });
+  });
+
+  app.get("/admin/approvals", async (c) =>
+    c.json(
+      await db.query(
+        `select a.id, a.reason, a.requested_at, a.decision, a.decided_by, a.decided_at, r.ref_code, r.total, s.name as salesman, cu.name as customer
+           from approvals a join invoice_requests r on r.id = a.request_id join salesmen s on s.id = r.salesman_id
+           join customers cu on cu.id = r.customer_id
+          order by (a.decision is null) desc, a.requested_at desc limit 100`,
+      ),
+    ),
+  );
+
+  app.post("/admin/approvals/:id/decide", async (c) => {
+    const actor = c.get("actor");
+    const id = uuid.parse(c.req.param("id"));
+    const { decision } = await body(c, z.object({ decision: z.enum(["approved", "rejected"]) }));
+    const phone = await db.tx(async (t) => {
+      const [a] = await t.query<{ request_id: string; decision: string | null }>(
+        `select request_id, decision from approvals where id=$1 for update`,
+        [id],
+      );
+      if (!a) throw new HttpError(404, "not_found", "Approval not found.");
+      if (a.decision) throw new HttpError(409, "decided", "This request was already decided.");
+      await t.query(`update approvals set decision=$2, decided_by=$3, decided_at=now() where id=$1`, [
+        id,
+        decision,
+        actor.email,
+      ]);
+      await t.query(
+        `update invoice_requests set status=$2, queued_at=case when $2='queued' then now() end,
+           finished_at=case when $2='cancelled' then now() end where id=$1 and status='awaiting_approval'`,
+        [a.request_id, decision === "approved" ? "queued" : "cancelled"],
+      );
+      await t.query(`insert into invoice_request_events (request_id, kind, detail) values ($1,$2,$3)`, [
+        a.request_id,
+        decision,
+        JSON.stringify({ by: actor.email }),
+      ]);
+      await audit(t, actor, decision, "approval", id, null, { request: a.request_id });
+      const [s] = await t.query<{ phone: string }>(
+        `select s.phone from invoice_requests r join salesmen s on s.id = r.salesman_id where r.id=$1`,
+        [a.request_id],
+      );
+      return s?.phone ?? null;
+    });
+    if (phone && deps.invoicing) await deps.invoicing.wa.sendText(phone, msg(decision === "approved" ? "M30" : "M29"));
+    deps.invoicing?.kick();
+    return c.json({ ok: true });
   });
 
   // ================================================================ settings and audit

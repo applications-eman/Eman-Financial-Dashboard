@@ -1,0 +1,597 @@
+import { createApp } from "./app.ts";
+import { signHs256 } from "./auth.ts";
+import type { Row } from "./db.ts";
+import { handleFlow } from "./invoicing/flow.ts";
+import { buildFlowJson } from "./invoicing/flow-json.ts";
+import { submitRequest } from "./invoicing/intake.ts";
+import { OdooError } from "./invoicing/odoo.ts";
+import type { InvoicingDeps } from "./invoicing/routes.ts";
+import { handleInvoicingWebhook } from "./invoicing/webhook.ts";
+import { drain, type WorkerDeps } from "./invoicing/worker.ts";
+import { testDb } from "./test-db.ts";
+import { FakeOdoo } from "./test-odoo.ts";
+import { FakeWa, lastSent } from "./test-wa.ts";
+import assert from "node:assert/strict";
+import {
+  constants,
+  createCipheriv,
+  createDecipheriv,
+  createHmac,
+  generateKeyPairSync,
+  publicEncrypt,
+  randomBytes,
+} from "node:crypto";
+import { readFileSync } from "node:fs";
+import { test } from "node:test";
+
+const PHONE = "966500000001";
+
+async function world() {
+  const db = await testDb();
+  const odoo = new FakeOdoo();
+  const wa = new FakeWa();
+  await db.query(
+    `insert into wa_targets (id, name, url, secret) values ('invoicing','Invoicing','https://i.example.com/w','router-secret')`,
+  );
+  await db.query(`insert into wa_numbers (phone, target_id) values ($1,'invoicing')`, [PHONE]);
+  const [s] = await db.query(
+    `insert into salesmen (code, name, phone, status) values ('FAIZAL-1','Faizal',$1,'active') returning id`,
+    [PHONE],
+  );
+  const [c] = await db.query(
+    `insert into customers (name, odoo_partner_id) values ('Al Noor Supermarket', 7) returning id`,
+  );
+  await db.query(`insert into salesman_customers (salesman_id, customer_id) values ($1,$2)`, [s.id, c.id]);
+  const [k] = await db.query(`insert into product_categories (name) values ('Shami') returning id`);
+  const [p] = await db.query(
+    `insert into products (name, category_id, max_price, odoo_product_id) values ('SHAMI - 5', $1, 4.50, 70) returning id`,
+    [k.id],
+  );
+  const worker: WorkerDeps = {
+    db,
+    odoo,
+    wa,
+    cashJournalId: 9,
+    workerId: "w1",
+    today: () => "2026-10-22",
+    pendingRetrySeconds: 30,
+  };
+  return {
+    db,
+    odoo,
+    wa,
+    worker,
+    salesman: s.id as string,
+    customer: c.id as string,
+    category: k.id as string,
+    product: p.id as string,
+  };
+}
+type World = Awaited<ReturnType<typeof world>>;
+
+async function session(w: World, token = "tok1") {
+  await w.db.query(
+    `insert into flow_sessions (token, salesman_id, expires_at) values ($1,$2, now() + interval '30 minutes')`,
+    [token, w.salesman],
+  );
+  return token;
+}
+
+/** walks the Flow like the phone does and confirms */
+async function placeOrder(w: World, token: string, qty = "20", price = "4.35") {
+  const init = await handleFlow(w.db, { action: "INIT", flow_token: token });
+  assert.equal(init.screen, "CUSTOMER");
+  await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: token,
+    data: { action: "select_customer", customer: w.customer },
+  });
+  const items = await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: token,
+    data: { action: "select_category", category: w.category },
+  });
+  assert.equal((items.data.products as unknown[]).length, 1);
+  const review = await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: token,
+    data: { action: "submit_item", category: w.category, product: w.product, qty, price, after: "add_review" },
+  });
+  assert.equal(review.screen, "REVIEW", JSON.stringify(review.data));
+  return handleFlow(w.db, { action: "data_exchange", flow_token: token, data: { action: "confirm" } });
+}
+
+test("webhook: unknown, inactive, media, kill switch, and the Flow button", async () => {
+  const w = await world();
+  const d = { db: w.db, wa: w.wa, odoo: w.odoo };
+  const text = (from: string) => ({
+    entry: [{ changes: [{ value: { messages: [{ from, id: "m", type: "text", text: { body: "hi" } }] } }] }],
+  });
+  await handleInvoicingWebhook(d, text("966511111111"));
+  assert.match(lastSent(w.wa).text, /not registered/);
+  await w.db.query(`update salesmen set status='frozen'`);
+  await handleInvoicingWebhook(d, text(PHONE));
+  assert.match(lastSent(w.wa).text, /not active/);
+  await w.db.query(`update salesmen set status='active'`);
+  await handleInvoicingWebhook(d, {
+    entry: [{ changes: [{ value: { messages: [{ from: PHONE, id: "m2", type: "image" }] } }] }],
+  });
+  assert.match(lastSent(w.wa).text, /use the invoice button/);
+  await w.db.query(`update platform_settings set value='true' where key='kill_switch'`);
+  await handleInvoicingWebhook(d, text(PHONE));
+  assert.match(lastSent(w.wa).text, /paused/);
+  await w.db.query(`update platform_settings set value='false' where key='kill_switch'`);
+  await handleInvoicingWebhook(d, text(PHONE));
+  const flow = lastSent(w.wa);
+  assert.equal(flow.kind, "flow");
+  assert.match(flow.text, /Hello Faizal/);
+  const [{ n }] = await w.db.query(`select count(*)::int n from flow_sessions where token=$1`, [flow.extra]);
+  assert.equal(n, 1);
+});
+
+test("flow: customer list, price rules, cart, review, confirm once", async () => {
+  const w = await world();
+  const t = await session(w);
+  const init = await handleFlow(w.db, { action: "INIT", flow_token: t });
+  assert.deepEqual(
+    (init.data.customers as { title: string }[]).map((x) => x.title),
+    ["Al Noor Supermarket"],
+  );
+  assert.match(String((await handleFlow(w.db, { action: "INIT", flow_token: "nope" })).data.error_message), /expired/);
+  assert.equal((await handleFlow(w.db, { action: "ping" })).data.status, "active");
+
+  // a customer that is not his is refused
+  const [other] = await w.db.query(`insert into customers (name, odoo_partner_id) values ('Stranger', 8) returning id`);
+  const bad = await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: t,
+    data: { action: "select_customer", customer: other.id },
+  });
+  assert.equal(bad.screen, "CUSTOMER");
+  assert.match(String(bad.data.error_message), /not allowed/);
+  await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: t,
+    data: { action: "select_customer", customer: w.customer },
+  });
+
+  const add = (o: Record<string, string>) =>
+    handleFlow(w.db, {
+      action: "data_exchange",
+      flow_token: t,
+      data: {
+        action: "submit_item",
+        category: w.category,
+        product: w.product,
+        qty: "10",
+        price: "4.00",
+        after: "add_more",
+        ...o,
+      },
+    });
+  assert.match(String((await add({ qty: "0" })).data.error_message), /greater than zero/);
+  assert.match(String((await add({ price: "abc" })).data.error_message), /valid price/);
+  assert.match(String((await add({ price: "4.51" })).data.error_message), /maximum allowed is 4.50/);
+  assert.equal((await add({ price: "4.50" })).screen, "ITEMS"); // exactly the limit is fine
+  assert.match(String((await add({ after: "remove_last" })).data.cart_text), /empty/);
+  await add({});
+  const rev = await add({ after: "add_review", qty: "5", price: "4.20" });
+  assert.equal(rev.screen, "REVIEW");
+  assert.match(String(rev.data.review_text), /Before VAT 61\.00\. VAT 9\.15\. Total 70\.15/);
+
+  const done = await handleFlow(w.db, { action: "data_exchange", flow_token: t, data: { action: "confirm" } });
+  assert.equal(done.screen, "SUCCESS");
+  const again = await handleFlow(w.db, { action: "data_exchange", flow_token: t, data: { action: "confirm" } });
+  assert.equal(again.screen, "SUCCESS");
+  const [{ n }] = await w.db.query(`select count(*)::int n from invoice_requests`);
+  assert.equal(n, 1);
+});
+
+test("intake: server re-checks prices, links, duplicates and limits", async () => {
+  const w = await world();
+  const t = await session(w);
+  await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: t,
+    data: { action: "select_customer", customer: w.customer },
+  });
+  await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: t,
+    data: {
+      action: "submit_item",
+      category: w.category,
+      product: w.product,
+      qty: "2",
+      price: "4.00",
+      after: "add_review",
+    },
+  });
+  // the limit was lowered after the salesman typed his price
+  await w.db.query(`update products set max_price = 3.50`);
+  const low = await submitRequest(w.db, t);
+  assert.equal(low.ok, false);
+  assert.equal(!low.ok && low.code, "M07");
+  await w.db.query(`update products set max_price = 4.50`);
+  await w.db.query(`update customers set odoo_partner_id = null`);
+  assert.equal((await submitRequest(w.db, t)).ok, false);
+  await w.db.query(`update customers set odoo_partner_id = 7`);
+  await w.db.query(`update platform_settings set value='true' where key='kill_switch'`);
+  const killed = await submitRequest(w.db, t);
+  assert.equal(!killed.ok && killed.code, "M31");
+  await w.db.query(`update platform_settings set value='false' where key='kill_switch'`);
+  const ok = await submitRequest(w.db, t);
+  assert.ok(ok.ok && ok.kind === "queued" && ok.position === 1);
+
+  // the same invoice again with a new session: needs approval
+  const t2 = await session(w, "tok2");
+  await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: t2,
+    data: { action: "select_customer", customer: w.customer },
+  });
+  await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: t2,
+    data: {
+      action: "submit_item",
+      category: w.category,
+      product: w.product,
+      qty: "2",
+      price: "4.00",
+      after: "add_review",
+    },
+  });
+  const dup = await submitRequest(w.db, t2);
+  assert.ok(dup.ok && dup.kind === "approval");
+  assert.equal((await w.db.query(`select count(*)::int n from approvals`))[0].n, 1);
+
+  // daily limit
+  await w.db.query(`update salesmen set daily_limit = 1`);
+  const t3 = await session(w, "tok3");
+  await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: t3,
+    data: { action: "select_customer", customer: w.customer },
+  });
+  await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: t3,
+    data: {
+      action: "submit_item",
+      category: w.category,
+      product: w.product,
+      qty: "1",
+      price: "1.00",
+      after: "add_review",
+    },
+  });
+  const lim = await submitRequest(w.db, t3);
+  assert.equal(!lim.ok && lim.code, "M23");
+});
+
+async function queued(w: World, qty = "20", price = "4.35", token = "tok1") {
+  const t = await session(w, token);
+  await placeOrder(w, t, qty, price);
+  const [r] = await w.db.query(`select id, ref_code from invoice_requests where request_key = $1`, [`flow:${t}`]);
+  return r as { id: string; ref_code: string };
+}
+
+test("worker: invoice is created, posted, cleared, paid in cash, PDF delivered, once", async () => {
+  const w = await world();
+  const r = await queued(w);
+  assert.equal(await drain(w.worker), 1);
+  const [row] = await w.db.query(
+    `select status, invoice_number, zatca_status, zatca_uuid, odoo_move_id from invoice_requests where id=$1`,
+    [r.id],
+  );
+  assert.equal(row.status, "cleared");
+  assert.match(row.invoice_number, /^INV\/2026\//);
+  assert.equal(row.zatca_status, "accepted");
+  assert.deepEqual(w.odoo.calls, ["create", "post", "send", "pay"]);
+  assert.equal(w.odoo.moves[0].ref, `WA-${r.ref_code}`);
+  assert.equal(w.odoo.moves[0].paid, true);
+  const doc = w.wa.sent.find((m) => m.kind === "document");
+  assert.ok(doc);
+  assert.match(doc.text, /ZATCA cleared/);
+  assert.equal(doc.to, PHONE);
+  // running again changes nothing
+  assert.equal(await drain(w.worker), 0);
+  assert.equal(w.odoo.moves.length, 1);
+});
+
+test("worker: a crash or timeout in the middle never makes a second invoice", async () => {
+  const w = await world();
+  const r = await queued(w);
+  w.odoo.failNext.post = new OdooError("timeout", 0, true);
+  await drain(w.worker);
+  assert.equal((await w.db.query(`select status from invoice_requests where id=$1`, [r.id]))[0].status, "processing");
+  assert.match(lastSent(w.wa).text, /system is busy/);
+  await w.db.query(`update invoice_requests set lease_until = now() - interval '1 second' where id=$1`, [r.id]);
+  await drain(w.worker);
+  assert.equal((await w.db.query(`select status from invoice_requests where id=$1`, [r.id]))[0].status, "cleared");
+  assert.equal(w.odoo.moves.length, 1);
+
+  // the process died after Odoo created the invoice but before we noted it: found again by its reference
+  const r2 = await queued(w, "3", "4.00", "tok2");
+  await w.odoo.createDraftInvoice({
+    partnerId: 7,
+    ref: `WA-${r2.ref_code}`,
+    origin: "x",
+    date: "2026-10-22",
+    lines: [{ productId: 70, name: "SHAMI - 5", quantity: 3, priceUnit: 4 }],
+  });
+  const before = w.odoo.moves.length;
+  await drain(w.worker);
+  assert.equal(w.odoo.moves.length, before);
+  assert.equal((await w.db.query(`select status from invoice_requests where id=$1`, [r2.id]))[0].status, "cleared");
+});
+
+test("worker: ZATCA rejects, pending, wrong amount, bad key", async () => {
+  const w = await world();
+  // rejected
+  w.odoo.zatca = "rejected";
+  w.odoo.zatcaText = "Invalid buyer address";
+  const r1 = await queued(w);
+  await drain(w.worker);
+  const [a] = await w.db.query(`select status, error_detail from invoice_requests where id=$1`, [r1.id]);
+  assert.equal(a.status, "rejected");
+  assert.match(lastSent(w.wa).text, /ZATCA did not accept this invoice\. Reason: Invalid buyer address/);
+
+  // pending: told once, tried again, finally cleared
+  w.odoo.zatca = "pending";
+  const r2 = await queued(w, "2", "4.00", "tok2");
+  await drain(w.worker);
+  assert.equal((await w.db.query(`select status from invoice_requests where id=$1`, [r2.id]))[0].status, "processing");
+  assert.ok(w.wa.sent.some((m) => /Waiting for ZATCA clearance/.test(m.text)));
+  w.odoo.zatca = "accepted";
+  await w.db.query(`update invoice_requests set lease_until = now() - interval '1 second' where id=$1`, [r2.id]);
+  await drain(w.worker);
+  assert.equal((await w.db.query(`select status from invoice_requests where id=$1`, [r2.id]))[0].status, "cleared");
+  assert.equal(w.odoo.moves.filter((m) => m.ref === `WA-${r2.ref_code}`).length, 1);
+
+  // Odoo computes a different amount: nothing is posted
+  w.odoo.skew = 5;
+  const r3 = await queued(w, "1", "4.00", "tok3");
+  const postsBefore = w.odoo.calls.filter((c) => c === "post").length;
+  await drain(w.worker);
+  const [c3] = await w.db.query(`select status, error_code from invoice_requests where id=$1`, [r3.id]);
+  assert.deepEqual([c3.status, c3.error_code], ["failed", "total_mismatch"]);
+  assert.equal(w.odoo.calls.filter((c) => c === "post").length, postsBefore);
+  assert.match(lastSent(w.wa).text, /was not issued/);
+  w.odoo.skew = 0;
+
+  // wrong key: fails at once, honest message
+  w.odoo.failNext.create = new OdooError("Invalid apikey", 401, false);
+  const r4 = await queued(w, "1", "3.00", "tok4");
+  await drain(w.worker);
+  const [d4] = await w.db.query(`select status, error_code from invoice_requests where id=$1`, [r4.id]);
+  assert.deepEqual([d4.status, d4.error_code], ["failed", "odoo_auth"]);
+  // an admin retries it: works now
+  assert.equal(
+    (await w.db.query(`update invoice_requests set status='queued' where id=$1 returning id`, [r4.id])).length,
+    1,
+  );
+  await drain(w.worker);
+  assert.equal((await w.db.query(`select status from invoice_requests where id=$1`, [r4.id]))[0].status, "cleared");
+});
+
+test("worker: one at a time, oldest first, pauses on the kill switch", async () => {
+  const w = await world();
+  const a = await queued(w, "1", "1.00", "tokA");
+  const b = await queued(w, "2", "1.00", "tokB");
+  await w.db.query(`update invoice_requests set created_at = now() - interval '5 minutes' where id=$1`, [b.id]);
+  await w.db.query(`update platform_settings set value='true' where key='kill_switch'`);
+  assert.equal(await drain(w.worker), 0);
+  await w.db.query(`update platform_settings set value='false' where key='kill_switch'`);
+  // another holder has the lock: this worker does nothing
+  await w.db.query(
+    `insert into worker_locks (name, holder, lease_until) values ('odoo-invoicing','other', now() + interval '1 minute')`,
+  );
+  assert.equal(await drain(w.worker), 0);
+  await w.db.query(`delete from worker_locks`);
+  assert.equal(await drain(w.worker), 2);
+  assert.equal(w.odoo.moves[0].ref, `WA-${b.ref_code}`);
+  assert.equal(w.odoo.moves[1].ref, `WA-${a.ref_code}`);
+});
+
+// ---------------------------------------------------------------- HTTP: router webhook, encrypted Flow endpoint, tick, admin
+
+const SECRET = "test-secret";
+const BASE = "https://auth.example.com";
+const token = (email: string) =>
+  signHs256(
+    { sub: email, email, aud: "authenticated", iss: `${BASE}/auth/v1`, exp: Math.floor(Date.now() / 1000) + 600 },
+    SECRET,
+  );
+
+async function httpWorld() {
+  const w = await world();
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  let kicked = 0;
+  const inv: InvoicingDeps = {
+    odoo: w.odoo,
+    wa: w.wa,
+    flowKey: privateKey,
+    appSecret: "app-secret",
+    tickSecret: "tick",
+    kick: () => void kicked++,
+    drainNow: () => drain(w.worker),
+  };
+  const app = createApp({
+    db: w.db,
+    auth: { issuerBase: BASE, jwtSecret: SECRET, fetch },
+    allowedOrigins: [],
+    invoicing: inv,
+  });
+  await w.db.query(
+    `insert into platform_admins (email, role) values ('boss@example.com','admin'), ('sup@example.com','supervisor')`,
+  );
+  return { ...w, app, publicKey, kicks: () => kicked };
+}
+
+function encryptRequest(publicKey: import("node:crypto").KeyObject, payload: unknown) {
+  const aes = randomBytes(16);
+  const iv = randomBytes(16);
+  const c = createCipheriv("aes-128-gcm", aes, iv);
+  const enc = Buffer.concat([c.update(JSON.stringify(payload), "utf8"), c.final(), c.getAuthTag()]);
+  return {
+    aes,
+    iv,
+    body: JSON.stringify({
+      encrypted_flow_data: enc.toString("base64"),
+      encrypted_aes_key: publicEncrypt(
+        { key: publicKey, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256" },
+        aes,
+      ).toString("base64"),
+      initial_vector: iv.toString("base64"),
+    }),
+  };
+}
+function decryptResponse(text: string, aes: Buffer, iv: Buffer) {
+  const flipped = Buffer.from(iv.map((b) => ~b & 0xff));
+  const data = Buffer.from(text, "base64");
+  const d = createDecipheriv("aes-128-gcm", aes, flipped);
+  d.setAuthTag(data.subarray(data.length - 16));
+  return JSON.parse(Buffer.concat([d.update(data.subarray(0, data.length - 16)), d.final()]).toString());
+}
+
+test("http: router secret, encrypted Flow endpoint, tick", async () => {
+  const w = await httpWorld();
+  const post = (path: string, body: string, headers: Record<string, string> = {}) =>
+    w.app.request(path, { method: "POST", body, headers });
+
+  const hook = JSON.stringify({
+    entry: [{ changes: [{ value: { messages: [{ from: PHONE, id: "m1", type: "text" }] } }] }],
+  });
+  assert.equal((await post("/invoicing/webhook", hook)).status, 401);
+  assert.equal((await post("/invoicing/webhook", hook, { "x-router-secret": "wrong" })).status, 401);
+  assert.equal(
+    (await post("/invoicing/webhook", hook, { "x-router-secret": "router-secret", "content-type": "application/json" }))
+      .status,
+    200,
+  );
+  const flow = w.wa.sent.find((m) => m.kind === "flow");
+  assert.ok(flow);
+
+  const sign = (raw: string) => `sha256=${createHmac("sha256", "app-secret").update(raw).digest("hex")}`;
+  const req = encryptRequest(w.publicKey, { version: "3.0", action: "INIT", flow_token: flow.extra });
+  assert.equal((await post("/invoicing/flow", req.body, { "x-hub-signature-256": "sha256=bad" })).status, 432);
+  assert.equal(
+    (
+      await post(
+        "/invoicing/flow",
+        JSON.stringify({ encrypted_flow_data: "AA==", encrypted_aes_key: "AA==", initial_vector: "AA==" }),
+        {
+          "x-hub-signature-256": sign(
+            JSON.stringify({ encrypted_flow_data: "AA==", encrypted_aes_key: "AA==", initial_vector: "AA==" }),
+          ),
+        },
+      )
+    ).status,
+    421,
+  );
+  const res = await post("/invoicing/flow", req.body, { "x-hub-signature-256": sign(req.body) });
+  assert.equal(res.status, 200);
+  const out = decryptResponse(await res.text(), req.aes, req.iv);
+  assert.equal(out.screen, "CUSTOMER");
+  assert.equal(out.data.customers[0].title, "Al Noor Supermarket");
+
+  const ping = encryptRequest(w.publicKey, { version: "3.0", action: "ping" });
+  const pr = await post("/invoicing/flow", ping.body, { "x-hub-signature-256": sign(ping.body) });
+  assert.equal(decryptResponse(await pr.text(), ping.aes, ping.iv).data.status, "active");
+
+  assert.equal((await post("/internal/tick", "")).status, 401);
+  await queued(w, "1", "1.00", "tokT");
+  const tick = await post("/internal/tick", "", { "x-tick-secret": "tick" });
+  assert.equal((await tick.json()).handled, 1);
+  assert.ok(w.kicks() >= 1);
+});
+
+test("admin: link to Odoo, requests list, approvals by a supervisor, retry", async () => {
+  const w = await httpWorld();
+  const call = async (method: string, path: string, body?: unknown, who = "boss@example.com") => {
+    const r = await w.app.request(path, {
+      method,
+      headers: { authorization: `Bearer ${token(who)}`, "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { status: r.status, json: (await r.json().catch(() => null)) as Row };
+  };
+  assert.equal((await call("GET", "/admin/odoo/status")).json.company, "Eman Bakery (test)");
+
+  await w.db.query(`insert into customers (name, vat) values ('Needs link', '300000000000003'), ('Unknown One', null)`);
+  w.odoo.partners.set("300000000000003", 55);
+  await w.db.query(`insert into products (name) values ('Samoon'), ('No match')`);
+  w.odoo.products.set("samoon", 99);
+  const link = await call("POST", "/admin/odoo/link");
+  assert.deepEqual([link.json.customers.linked, link.json.customers.unmatched], [1, ["Unknown One"]]);
+  assert.deepEqual([link.json.products.linked, link.json.products.unmatched], [1, ["No match"]]);
+
+  // a repeat of the same invoice waits for a supervisor
+  const first = await queued(w, "2", "4.00", "t1");
+  const t2 = await session(w, "t2");
+  await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: t2,
+    data: { action: "select_customer", customer: w.customer },
+  });
+  await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: t2,
+    data: {
+      action: "submit_item",
+      category: w.category,
+      product: w.product,
+      qty: "2",
+      price: "4.00",
+      after: "add_review",
+    },
+  });
+  await handleFlow(w.db, { action: "data_exchange", flow_token: t2, data: { action: "confirm" } });
+  const approvals = (await call("GET", "/admin/approvals", undefined, "sup@example.com")).json;
+  assert.equal(approvals.length, 1);
+  assert.equal(
+    (await call("POST", `/admin/approvals/${approvals[0].id}/decide`, { decision: "approved" }, "sup@example.com"))
+      .status,
+    200,
+  );
+  assert.equal(
+    (await call("POST", `/admin/approvals/${approvals[0].id}/decide`, { decision: "approved" })).status,
+    409,
+  );
+  assert.match(lastSent(w.wa).text, /supervisor approved/);
+  assert.equal(await drain(w.worker), 2);
+  assert.equal((await call("GET", "/admin/requests?status=cleared")).json.length, 2);
+  assert.equal((await call("POST", `/admin/requests/${first.id}/retry`)).status, 409);
+  assert.equal((await call("POST", `/admin/requests/${first.id}/retry`, undefined, "sup@example.com")).status, 403);
+  assert.equal((await call("GET", `/admin/requests/${first.id}/events`)).json.length > 3, true);
+});
+
+test("the Flow definition follows Meta's rules", () => {
+  const f = buildFlowJson();
+  const ids = f.screens.map((s) => s.id);
+  assert.equal(new Set(ids).size, ids.length);
+  assert.ok(!ids.includes("SUCCESS"), "SUCCESS is reserved by Meta");
+  assert.deepEqual(Object.keys(f.routing_model).sort(), [...ids].sort());
+  const order = new Map(ids.map((id, i) => [id, i]));
+  for (const [from, tos] of Object.entries(f.routing_model))
+    for (const to of tos)
+      assert.ok(Number(order.get(to)) > Number(order.get(from)), `route ${from}->${to} must go forward`);
+  const names = new Set<string>();
+  for (const s of f.screens) {
+    const kids = s.layout.children as { type: string; name?: string }[];
+    assert.equal(kids.filter((k) => k.type === "Footer").length, 1, `${s.id} needs one Footer`);
+    for (const k of kids)
+      if (k.name) {
+        assert.ok(!names.has(k.name), `duplicate field name ${k.name}`);
+        names.add(k.name);
+      }
+  }
+  assert.equal(f.screens.filter((s) => (s as { terminal?: boolean }).terminal).length, 1);
+  // the file given to Meta is the one the code generates
+  const onDisk = JSON.parse(
+    readFileSync(new URL("../../docs/whatsapp-invoicing/flow-live.json", import.meta.url), "utf8"),
+  );
+  assert.deepEqual(onDisk, JSON.parse(JSON.stringify(f)), "run: node src/invoicing/write-flow.ts");
+});

@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 /** In-process Postgres running the real migration files. Tests only. */
 export async function testDb(): Promise<Db> {
   const pg = new PGlite();
-  for (const f of ["0001_core.sql", "0002_admins.sql"])
+  for (const f of ["0001_core.sql", "0002_admins.sql", "0003_invoicing.sql"])
     await pg.exec(readFileSync(new URL(`../db/${f}`, import.meta.url), "utf8"));
   const wrap = (q: { query: PGlite["query"] }): Db => ({
     query: async <T = Row>(sql: string, params: unknown[] = []) => (await q.query(sql, params)).rows as T[],

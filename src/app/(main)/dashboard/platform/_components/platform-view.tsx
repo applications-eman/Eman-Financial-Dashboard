@@ -6,6 +6,7 @@ import { platformConfigured } from "@/lib/platform-api";
 
 import { AuditTab } from "./audit-tab";
 import { CustomersTab } from "./customers-tab";
+import { InvoicesTab } from "./invoices-tab";
 import { ProductsTab } from "./products-tab";
 import { SalesmenTab } from "./salesmen-tab";
 import { ServicesTab } from "./services-tab";
@@ -22,8 +23,9 @@ export function PlatformView() {
       </div>
 
       {platformConfigured() ? (
-        <Tabs defaultValue="salesmen" className="gap-4">
+        <Tabs defaultValue="invoices" className="gap-4">
           <TabsList className="flex-wrap">
+            <TabsTrigger value="invoices">Invoices</TabsTrigger>
             <TabsTrigger value="salesmen">Salesmen</TabsTrigger>
             <TabsTrigger value="customers">Customers</TabsTrigger>
             <TabsTrigger value="products">Products</TabsTrigger>
@@ -31,6 +33,9 @@ export function PlatformView() {
             <TabsTrigger value="settings">Settings</TabsTrigger>
             <TabsTrigger value="audit">Change log</TabsTrigger>
           </TabsList>
+          <TabsContent value="invoices">
+            <InvoicesTab />
+          </TabsContent>
           <TabsContent value="salesmen">
             <SalesmenTab />
           </TabsContent>
