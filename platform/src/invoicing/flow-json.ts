@@ -1,5 +1,5 @@
 // biome-ignore-all lint/suspicious/noTemplateCurlyInString: "${data.x}" and "${form.x}" are Meta Flow expressions, not JavaScript templates
-// The Flow definition uploaded to Meta (Flow JSON 6.3, data endpoint 3.0). Generated, so tests can check it.
+// The Flow definition uploaded to Meta (Flow JSON 6.0, data endpoint 3.0). Generated, so tests can check it.
 const heading = (text: string) => ({ type: "TextHeading", text });
 const body = (text: string) => ({ type: "TextBody", text });
 const dataExchange = (payload: Record<string, string>) => ({ name: "data_exchange", payload });
@@ -16,7 +16,7 @@ const str = (example: string) => ({ type: "string", __example__: example });
 
 export function buildFlowJson() {
   return {
-    version: "6.3",
+    version: "6.0",
     data_api_version: "3.0",
     routing_model: { CUSTOMER: ["ITEMS"], ITEMS: ["REVIEW"], REVIEW: [] },
     screens: [
@@ -62,10 +62,9 @@ export function buildFlowJson() {
             },
             body("${data.cart_text}"),
             {
-              type: "ChipsSelector",
+              type: "RadioButtonsGroup",
               label: "Category",
               name: "category",
-              "max-selected-items": 1,
               required: false,
               "data-source": "${data.categories}",
               "on-select-action": dataExchange({ step: "select_category", category: "${form.category}" }),

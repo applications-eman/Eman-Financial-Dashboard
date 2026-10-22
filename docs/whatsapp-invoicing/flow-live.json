@@ -1,5 +1,5 @@
 {
-  "version": "6.3",
+  "version": "6.0",
   "data_api_version": "3.0",
   "routing_model": {
     "CUSTOMER": ["ITEMS"],
@@ -138,10 +138,9 @@
             "text": "${data.cart_text}"
           },
           {
-            "type": "ChipsSelector",
+            "type": "RadioButtonsGroup",
             "label": "Category",
             "name": "category",
-            "max-selected-items": 1,
             "required": false,
             "data-source": "${data.categories}",
             "on-select-action": {
