@@ -55,7 +55,7 @@
             "on-click-action": {
               "name": "data_exchange",
               "payload": {
-                "action": "select_customer",
+                "step": "select_customer",
                 "customer": "${form.customer}"
               }
             }
@@ -139,7 +139,7 @@
             "on-select-action": {
               "name": "data_exchange",
               "payload": {
-                "action": "select_category",
+                "step": "select_category",
                 "category": "${form.category}"
               }
             }
@@ -196,7 +196,7 @@
             "on-click-action": {
               "name": "data_exchange",
               "payload": {
-                "action": "submit_item",
+                "step": "submit_item",
                 "category": "${form.category}",
                 "product": "${form.product}",
                 "qty": "${form.qty}",
@@ -235,7 +235,7 @@
             "on-click-action": {
               "name": "data_exchange",
               "payload": {
-                "action": "confirm"
+                "step": "confirm"
               }
             }
           }

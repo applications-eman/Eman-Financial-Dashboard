@@ -3,7 +3,7 @@
 import type { Env, Hono } from "hono";
 
 import type { Db } from "../db.ts";
-import { handleFlow } from "./flow.ts";
+import { handleFlow, stepOf } from "./flow.ts";
 import { decryptFlowRequest, encryptFlowResponse, FlowDecryptError } from "./flow-crypto.ts";
 import type { OdooPort } from "./odoo.ts";
 import type { WaPort } from "./wa.ts";
@@ -80,7 +80,8 @@ export function mountInvoicing<E extends Env>(app: Hono<E>, db: Db, d: Invoicing
         event: "flow_step",
         action: asked.action,
         screen: asked.screen,
-        step: asked.data?.action,
+        step: stepOf(typeof asked.screen === "string" ? asked.screen : undefined, asked.data ?? {}),
+        data_keys: Object.keys(asked.data ?? {}),
         answered: out.screen,
         keys: Object.keys(out.data),
         error_message: typeof out.data.error_message === "string" ? out.data.error_message : undefined,

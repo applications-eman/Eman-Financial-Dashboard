@@ -38,7 +38,7 @@ export function buildFlowJson() {
             {
               type: "Footer",
               label: "Continue",
-              "on-click-action": dataExchange({ action: "select_customer", customer: "${form.customer}" }),
+              "on-click-action": dataExchange({ step: "select_customer", customer: "${form.customer}" }),
             },
           ],
         },
@@ -62,7 +62,7 @@ export function buildFlowJson() {
               name: "category",
               required: false,
               "data-source": "${data.categories}",
-              "on-select-action": dataExchange({ action: "select_category", category: "${form.category}" }),
+              "on-select-action": dataExchange({ step: "select_category", category: "${form.category}" }),
             },
             {
               type: "Dropdown",
@@ -102,7 +102,7 @@ export function buildFlowJson() {
               type: "Footer",
               label: "Continue",
               "on-click-action": dataExchange({
-                action: "submit_item",
+                step: "submit_item",
                 category: "${form.category}",
                 product: "${form.product}",
                 qty: "${form.qty}",
@@ -123,7 +123,7 @@ export function buildFlowJson() {
           children: [
             heading("Please check"),
             body("${data.review_text}"),
-            { type: "Footer", label: "Confirm invoice", "on-click-action": dataExchange({ action: "confirm" }) },
+            { type: "Footer", label: "Confirm invoice", "on-click-action": dataExchange({ step: "confirm" }) },
           ],
         },
       },

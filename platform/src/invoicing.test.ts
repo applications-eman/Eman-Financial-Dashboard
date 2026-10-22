@@ -745,3 +745,36 @@ test("flow: every answer matches the data the Flow declares for that screen (key
   const ok = await step("confirm", { action: "confirm" });
   assert.equal(ok.screen, "SUCCESS");
 });
+
+test("flow: the step is understood even when its name did not arrive, and a dead end always shows a message", async () => {
+  const w = await world();
+  const t = await session(w);
+  const go = (screen: string, data: Record<string, unknown>) =>
+    handleFlow(w.db, { action: "data_exchange", screen, flow_token: t, data });
+  // exactly what the real phone sent: no step name at all, only the field
+  const noName = await go("CUSTOMER", { customer: w.customer });
+  assert.equal(noName.screen, "ITEMS");
+  assert.equal((await go("ITEMS", { category: w.category })).screen, "ITEMS");
+  const added = await go("ITEMS", {
+    category: w.category,
+    product: w.product,
+    qty: "2",
+    price: "4",
+    after: "add_review",
+  });
+  assert.equal(added.screen, "REVIEW");
+  const named = await handleFlow(w.db, {
+    action: "data_exchange",
+    screen: "REVIEW",
+    flow_token: t,
+    data: { step: "confirm" },
+  });
+  assert.equal(named.screen, "SUCCESS");
+
+  // a request nobody can understand shows a visible message instead of standing still
+  const w2 = await world();
+  const t2 = await session(w2, "tok-x");
+  const lost = await handleFlow(w2.db, { action: "data_exchange", screen: "CUSTOMER", flow_token: t2, data: {} });
+  assert.equal(lost.screen, "CUSTOMER");
+  assert.match(String(lost.data.error_message), /could not be read/);
+});

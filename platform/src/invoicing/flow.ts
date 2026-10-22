@@ -144,6 +144,23 @@ async function save(db: Db, token: string, patch: { customer_id?: string | null;
   );
 }
 
+/**
+ * Which step the phone is asking for. Normally the Flow names it (`step`; `action` in the first version of the Flow).
+ * If the name did not arrive, it is worked out from the screen and from which fields came with it, so a tap never
+ * dead-ends silently.
+ */
+export function stepOf(screen: string | undefined, d: Record<string, unknown>): string {
+  const named = String(d.step ?? d.action ?? "");
+  if (named) return named;
+  if (screen === "CUSTOMER") return "customer" in d ? "select_customer" : "";
+  if (screen === "REVIEW") return "confirm";
+  if (screen === "ITEMS") {
+    if (["product", "qty", "price", "after"].some((k) => k in d)) return "submit_item";
+    if ("category" in d) return "select_category";
+  }
+  return "";
+}
+
 export async function handleFlow(db: Db, body: FlowBody): Promise<FlowResponse> {
   if (body.action === "ping") return { data: { status: "active" } };
   // Meta reports a problem it saw on its side: acknowledge
@@ -173,7 +190,7 @@ export async function handleFlow(db: Db, body: FlowBody): Promise<FlowResponse> 
     return { screen: "SUCCESS", data: { extension_message_response: { params: { flow_token: token } } } };
   }
 
-  switch (String(d.action ?? "")) {
+  switch (stepOf(body.screen, d)) {
     case "select_customer": {
       const id = String(d.customer ?? "");
       const ok = (await customerOptions(db, s.salesman_id)).some((o) => o.id === id);
@@ -190,8 +207,11 @@ export async function handleFlow(db: Db, body: FlowBody): Promise<FlowResponse> 
       if (!r.ok) return reviewScreen(db, s, err(r.code, r.vars));
       return { screen: "SUCCESS", data: { extension_message_response: { params: { flow_token: token } } } };
     }
-    default:
-      return s.customer_id ? itemsScreen(db, s) : customerScreen(db, s);
+    default: {
+      // never stay silent: show a message on the screen the person is on
+      const msgText = "That step could not be read. Please try again.";
+      return s.customer_id ? itemsScreen(db, s, { error: msgText }) : customerScreen(db, s, msgText);
+    }
   }
 }
 
