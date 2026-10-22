@@ -38,32 +38,18 @@ export function normalizePem(raw: string): string {
 }
 
 export function loadPrivateKey(pem: string, passphrase?: string): KeyObject {
-  return createPrivateKey({ key: normalizePem(pem), ...(passphrase ? { passphrase: passphrase.trim() } : {}) });
-}
-
-export function decryptFlowRequest(env: FlowEnvelope, privateKey: KeyObject): DecryptedFlowRequest {
+  const pass = passphrase?.trim() ?? "";
   try {
-    const aesKey = privateDecrypt(
-      { key: privateKey, padding: constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256" },
-      Buffer.from(env.encrypted_aes_key, "base64"),
-    );
-    if (aesKey.length !== 16) throw new Error("unexpected AES key length");
-    const iv = Buffer.from(env.initial_vector, "base64");
-    const data = Buffer.from(env.encrypted_flow_data, "base64");
-    if (data.length < 17 || iv.length !== 16) throw new Error("malformed payload");
-    const tag = data.subarray(data.length - 16);
-    const decipher = createDecipheriv("aes-128-gcm", aesKey, iv);
-    decipher.setAuthTag(tag);
-    const plain = Buffer.concat([decipher.update(data.subarray(0, data.length - 16)), decipher.final()]);
-    return { body: JSON.parse(plain.toString("utf8")), aesKey, iv };
+    return createPrivateKey({ key: normalizePem(pem), ...(pass === "" ? {} : { passphrase: pass }) });
   } catch (e) {
-    throw new FlowDecryptError(e instanceof Error ? e.message : "decrypt failed");
+    const m = e instanceof Error ? e.message : String(e);
+    // say what is actually wrong instead of an OpenSSL code
+    if (/interrupted or cancelled/i.test(m))
+      throw new Error(
+        "the Flow key is protected by a passphrase, but none was given (FLOW_PRIVATE_KEY_PASSPHRASE is empty or missing)",
+      );
+    if (/bad decrypt/i.test(m))
+      throw new Error(`the Flow key passphrase does not match the key (passphrase length ${pass.length})`);
+    throw new Error(`the Flow key could not be read: ${m}`);
   }
-}
-
-export function encryptFlowResponse(response: unknown, aesKey: Buffer, iv: Buffer): string {
-  const flipped = Buffer.from(iv.map((b) => ~b & 0xff));
-  const cipher = createCipheriv("aes-128-gcm", aesKey, flipped);
-  const enc = Buffer.concat([cipher.update(JSON.stringify(response), "utf8"), cipher.final(), cipher.getAuthTag()]);
-  return enc.toString("base64");
 }

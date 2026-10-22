@@ -31,4 +31,8 @@ test("the Flow key is read however it was stored", () => {
     assert.equal(key.asymmetricKeyType, "rsa", name);
   }
   assert.throws(() => loadPrivateKey(encrypted, "wrong passphrase"));
+  assert.throws(() => loadPrivateKey(encrypted), /passphrase, but none was given/);
+  assert.throws(() => loadPrivateKey(encrypted, "  "), /passphrase, but none was given/);
+  assert.throws(() => loadPrivateKey(encrypted, "wrong"), /does not match the key/);
+  assert.throws(() => loadPrivateKey("garbage"), /could not be read/);
 });
