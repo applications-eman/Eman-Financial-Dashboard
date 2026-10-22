@@ -37,6 +37,11 @@ export interface OdooPort {
   sendToZatca(moveId: number): Promise<void>;
   /** ZATCA error text of the invoice, if any */
   zatcaMessage(moveId: number): Promise<string>;
+  /**
+   * Odoo keeps the PDF made at the FIRST send attempt, even a rejected one. After a retry that PDF is outdated,
+   * so: if it is older than the accepted ZATCA file, it is deleted and Odoo makes a new one. Returns the PDF attachment id.
+   */
+  renderFreshPdf(moveId: number): Promise<number | null>;
   registerPayment(moveId: number, journalId: number, date: string): Promise<void>;
   getMove(moveId: number): Promise<OdooMove>;
   pdf(attachmentId: number): Promise<{ filename: string; base64: string } | null>;
@@ -234,6 +239,67 @@ export class Json2Odoo implements OdooPort {
       vals: { extra_edi_checkboxes: edi, sending_method_checkboxes: methods },
     });
     await this.call("account.move.send.wizard", "action_send_and_print", { ids: [wizardId], context });
+  }
+
+  async renderFreshPdf(moveId: number): Promise<number | null> {
+    const [m] = await this.call<{ invoice_pdf_report_id: unknown; l10n_sa_edi_document_id: unknown }[]>(
+      "account.move",
+      "read",
+      {
+        ids: [moveId],
+        fields: ["invoice_pdf_report_id", "l10n_sa_edi_document_id"],
+      },
+    );
+    const pdfId = attachmentId(m?.invoice_pdf_report_id);
+    let stale = pdfId === null;
+    const docId = attachmentId(m?.l10n_sa_edi_document_id);
+    if (pdfId !== null && docId !== null) {
+      const [d] = await this.call<{ attachment_id: unknown }[]>("l10n_sa_edi.document", "read", {
+        ids: [docId],
+        fields: ["attachment_id"],
+      });
+      const xmlId = attachmentId(d?.attachment_id);
+      if (xmlId !== null) {
+        const atts = await this.call<{ id: number; create_date: string }[]>("ir.attachment", "read", {
+          ids: [pdfId, xmlId],
+          fields: ["create_date"],
+        });
+        const pdfAt = atts.find((a) => a.id === pdfId)?.create_date ?? "";
+        const xmlAt = atts.find((a) => a.id === xmlId)?.create_date ?? "";
+        stale = pdfAt !== "" && xmlAt !== "" && pdfAt < xmlAt;
+      }
+    }
+    if (!stale) return pdfId;
+    if (pdfId !== null) await this.call("ir.attachment", "unlink", { ids: [pdfId] });
+    // Send & Print again with nothing ticked: Odoo only renders the PDF
+    const context: Ctx = { active_model: "account.move", active_ids: [moveId], active_id: moveId };
+    const [wizardId] = await this.call<number[]>("account.move.send.wizard", "create", {
+      context,
+      vals_list: [{ move_id: moveId }],
+    });
+    const [w] = await this.call<{ sending_method_checkboxes: Record<string, { checked?: boolean }> | false }[]>(
+      "account.move.send.wizard",
+      "read",
+      {
+        ids: [wizardId],
+        context,
+        fields: ["sending_method_checkboxes"],
+      },
+    );
+    const methods = Object.fromEntries(
+      Object.entries(w?.sending_method_checkboxes || {}).map(([k, v]) => [k, { ...v, checked: false }]),
+    );
+    await this.call("account.move.send.wizard", "write", {
+      ids: [wizardId],
+      context,
+      vals: { sending_method_checkboxes: methods },
+    });
+    await this.call("account.move.send.wizard", "action_send_and_print", { ids: [wizardId], context });
+    const [after] = await this.call<{ invoice_pdf_report_id: unknown }[]>("account.move", "read", {
+      ids: [moveId],
+      fields: ["invoice_pdf_report_id"],
+    });
+    return attachmentId(after?.invoice_pdf_report_id);
   }
 
   async zatcaMessage(moveId: number): Promise<string> {

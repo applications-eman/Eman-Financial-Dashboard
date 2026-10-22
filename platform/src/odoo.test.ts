@@ -148,3 +148,51 @@ test("cash payment, partner and product lookup, PDF", async () => {
   ]);
   assert.equal((await scripted([[{ name: "a.pdf", datas: "QUJD" }]]).odoo.pdf(88))?.base64, "QUJD");
 });
+
+test("PDF: a PDF older than the accepted ZATCA file is deleted and Odoo makes a new one", async () => {
+  const stale = scripted([
+    [{ invoice_pdf_report_id: [241, "old.pdf"], l10n_sa_edi_document_id: [1, ""] }],
+    [{ attachment_id: [247, "x.xml"] }],
+    [
+      { id: 241, create_date: "2026-10-22 06:07:24" },
+      { id: 247, create_date: "2026-10-22 06:09:34" },
+    ],
+    true,
+    [31],
+    [{ sending_method_checkboxes: { email: { checked: true, label: "by Email" } } }],
+    true,
+    { type: "ir.actions.act_window_close" },
+    [{ invoice_pdf_report_id: [249, "new.pdf"] }],
+  ]);
+  assert.equal(await stale.odoo.renderFreshPdf(1), 249);
+  assert.deepEqual(
+    stale.calls.map((c) => c.url.split("/json/2/")[1]),
+    [
+      "account.move/read",
+      "l10n_sa_edi.document/read",
+      "ir.attachment/read",
+      "ir.attachment/unlink",
+      "account.move.send.wizard/create",
+      "account.move.send.wizard/read",
+      "account.move.send.wizard/write",
+      "account.move.send.wizard/action_send_and_print",
+      "account.move/read",
+    ],
+  );
+  assert.equal(
+    (stale.calls[6].body.vals as { sending_method_checkboxes: { email: { checked: boolean } } })
+      .sending_method_checkboxes.email.checked,
+    false,
+  );
+
+  const fresh = scripted([
+    [{ invoice_pdf_report_id: [250, "pdf"], l10n_sa_edi_document_id: [1, ""] }],
+    [{ attachment_id: [247, "x.xml"] }],
+    [
+      { id: 250, create_date: "2026-10-22 06:09:40" },
+      { id: 247, create_date: "2026-10-22 06:09:34" },
+    ],
+  ]);
+  assert.equal(await fresh.odoo.renderFreshPdf(1), 250);
+  assert.equal(fresh.calls.length, 3, "nothing is deleted or re-made when the PDF is already newer");
+});

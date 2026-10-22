@@ -241,7 +241,8 @@ export async function deliverPdf(
     [refCode],
   );
   if (!s || !r) return;
-  const pdf = move.pdfAttachmentId ? await d.odoo.pdf(move.pdfAttachmentId).catch(() => null) : null;
+  const pdfId = await d.odoo.renderFreshPdf(move.id).catch(() => move.pdfAttachmentId);
+  const pdf = pdfId ? await d.odoo.pdf(pdfId).catch(() => null) : null;
   const caption = msg("M13", { number: String(move.name), customer: r.customer, total: money(Number(r.total)) });
   const sent = pdf
     ? await d.wa.sendDocument(s.phone, {

@@ -288,7 +288,7 @@ test("worker: invoice is created, posted, cleared, paid in cash, PDF delivered, 
   assert.equal(row.status, "cleared");
   assert.match(row.invoice_number, /^INV\/2026\//);
   assert.equal(row.zatca_status, "accepted");
-  assert.deepEqual(w.odoo.calls, ["create", "post", "send", "pay"]);
+  assert.deepEqual(w.odoo.calls, ["create", "post", "send", "pay", "pdf"]);
   assert.equal(w.odoo.moves[0].ref, `WA-${r.ref_code}`);
   assert.equal(w.odoo.moves[0].paid, true);
   const doc = w.wa.sent.find((m) => m.kind === "document");
