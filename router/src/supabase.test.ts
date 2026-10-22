@@ -10,14 +10,30 @@ test("registry reads both lists with the service key and maps them", async () =>
   const f = (async (url: string, init: RequestInit) => {
     seen.push({ url, auth: (init.headers as Record<string, string>).authorization });
     return url.includes("wa_targets")
-      ? json([{ id: "expense", name: "Expense", url: "https://e.example.com/w", secret: null, enabled: true }])
-      : json([{ phone: "966500000001", target_id: "expense" }]);
+      ? json([
+          {
+            id: "expense",
+            name: "Expense",
+            url: "https://e.example.com/w",
+            secret: null,
+            enabled: true,
+            is_default: true,
+          },
+        ])
+      : json([
+          { phone: "966500000001", target_id: "expense", enabled: true },
+          { phone: "966500000002", target_id: "expense", enabled: false },
+        ]);
   }) as unknown as typeof fetch;
   const reg = new SupabaseRegistry({ url: "https://p.supabase.co", serviceKey: "KEY", fetch: f });
-  assert.deepEqual(await reg.routes(), [{ phone: "966500000001", targetId: "expense" }]);
+  assert.deepEqual(await reg.routes(), [
+    { phone: "966500000001", targetId: "expense", enabled: true },
+    { phone: "966500000002", targetId: "expense", enabled: false },
+  ]);
+  assert.equal((await reg.targets())[0].isDefault, true);
   assert.equal((await reg.targets())[0].secret, undefined);
   assert.ok(seen.every((s) => s.auth === "Bearer KEY"));
-  assert.ok(seen.some((s) => s.url.includes("wa_numbers") && s.url.includes("enabled=eq.true")));
+  assert.ok(seen.some((s) => s.url.includes("wa_numbers") && s.url.includes("enabled")));
   assert.equal(seen.length, 2); // second call was served from the cache
 });
 

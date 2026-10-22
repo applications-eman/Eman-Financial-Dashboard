@@ -23,10 +23,20 @@ export class MemoryRegistry implements Registry {
  *    "numbers":[{"phone":"966501234567","target":"expense"}]}
  */
 export function registryFromJson(json: string): Registry {
-  const raw = JSON.parse(json) as { targets?: Partial<Target>[]; numbers?: { phone?: string; target?: string }[] };
+  const raw = JSON.parse(json) as {
+    targets?: (Partial<Target> & { default?: boolean })[];
+    numbers?: { phone?: string; target?: string }[];
+  };
   const targets: Target[] = (raw.targets ?? []).map((t) => {
     if (!t.id || !t.url || !isSafeTargetUrl(t.url)) throw new Error(`unsafe or incomplete target: ${t.id ?? "?"}`);
-    return { id: t.id, name: t.name ?? t.id, url: t.url, secret: t.secret, enabled: t.enabled !== false };
+    return {
+      id: t.id,
+      name: t.name ?? t.id,
+      url: t.url,
+      secret: t.secret,
+      enabled: t.enabled !== false,
+      isDefault: t.default === true || t.isDefault === true,
+    };
   });
   const ids = new Set(targets.map((t) => t.id));
   const seen = new Set<string>();

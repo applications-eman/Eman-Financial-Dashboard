@@ -7,12 +7,16 @@ export interface Target {
   /** sent as X-Router-Secret so the service can refuse calls that did not come through the router */
   secret?: string;
   enabled: boolean;
+  /** receives every sender that no service has claimed (e.g. the existing expense capture), so nobody is cut off */
+  isDefault?: boolean;
 }
 
 /** Which service owns which WhatsApp number. One number belongs to exactly one service. */
 export interface NumberRoute {
   phone: string; // digits only, e.g. 966501234567
   targetId: string;
+  /** false = registered but switched off (e.g. a frozen salesman): dropped, never sent to the default service */
+  enabled?: boolean;
 }
 
 export interface Registry {

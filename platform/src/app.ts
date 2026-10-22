@@ -150,7 +150,7 @@ export function createApp(deps: AppDeps) {
   // ================================================================ services (router targets)
   app.get("/admin/targets", async (c) =>
     c.json(
-      await db.query(`select t.id, t.name, t.url, t.enabled, t.notes, (t.secret is not null) as has_secret, t.created_at,
+      await db.query(`select t.id, t.name, t.url, t.enabled, t.is_default, t.notes, (t.secret is not null) as has_secret, t.created_at,
       (select count(*)::int from wa_numbers n where n.target_id = t.id) as numbers from wa_targets t order by t.name`),
     ),
   );
@@ -202,6 +202,8 @@ export function createApp(deps: AppDeps) {
         url: z.string().max(500).optional(),
         enabled: z.boolean().optional(),
         notes: z.string().max(500).nullable().optional(),
+        /** receives every sender no service has claimed (only one service can be the default) */
+        is_default: z.boolean().optional(),
       }),
     );
     if (b.url !== undefined && !isSafeTargetUrl(b.url))
@@ -211,13 +213,25 @@ export function createApp(deps: AppDeps) {
         "The address must be a public https address (no IP numbers, no internal names).",
       );
     const out = await db.tx(async (t) => {
-      const [before] = await t.query(`select id, name, url, enabled, notes from wa_targets where id=$1 for update`, [
-        id,
-      ]);
+      const [before] = await t.query(
+        `select id, name, url, enabled, is_default, notes from wa_targets where id=$1 for update`,
+        [id],
+      );
       if (!before) throw new HttpError(404, "not_found", "Service not found.");
+      if (b.is_default === true)
+        await t.query(`update wa_targets set is_default=false where id<>$1 and is_default`, [id]);
       const [after] = await t.query(
-        `update wa_targets set name=coalesce($2,name), url=coalesce($3,url), enabled=coalesce($4,enabled), notes=case when $5::boolean then $6 else notes end where id=$1 returning id, name, url, enabled, notes`,
-        [id, b.name ?? null, b.url ?? null, b.enabled ?? null, b.notes !== undefined, b.notes ?? null],
+        `update wa_targets set name=coalesce($2,name), url=coalesce($3,url), enabled=coalesce($4,enabled), is_default=coalesce($7,is_default),
+           notes=case when $5::boolean then $6 else notes end where id=$1 returning id, name, url, enabled, is_default, notes`,
+        [
+          id,
+          b.name ?? null,
+          b.url ?? null,
+          b.enabled ?? null,
+          b.notes !== undefined,
+          b.notes ?? null,
+          b.is_default ?? null,
+        ],
       );
       await audit(t, actor, "update", "wa_target", id, before, after);
       return after;

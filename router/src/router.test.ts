@@ -211,3 +211,29 @@ test("registry JSON: valid list loads, an unsafe target or a number owned twice 
     ),
   );
 });
+
+test("default service: unclaimed senders keep going to it; registered-but-off and disabled-service numbers are dropped", async () => {
+  const withDefault: Target[] = targets.map((t) => (t.id === "expense" ? { ...t, isDefault: true } : t));
+  const frozen = { phone: "966500000004", targetId: "invoicing", enabled: false };
+  const { deps, calls } = setup();
+  deps.registry = new MemoryRegistry(withDefault, [...routes, frozen]);
+  const send = (from: string, id: string) => {
+    const { raw, headers } = signed(body([msg(from, id)]));
+    return handleWebhook(deps, raw, headers);
+  };
+  assert.equal((await send("966500009999", "d1")).status, 200); // nobody owns it -> default (expense)
+  assert.equal(calls.at(-1)?.url, "https://expense.example.com/webhook");
+  const before = calls.length;
+  await send("966500000002", "d2"); // owned by invoicing
+  assert.equal(calls.at(-1)?.url, "https://invoicing.example.com/webhook");
+  await send("966500000004", "d3"); // a frozen salesman: dropped, NOT handed to the default service
+  await send("966500000003", "d4"); // owned by a switched-off service: dropped
+  assert.equal(calls.length, before + 1);
+});
+
+test("without a default service an unclaimed sender is dropped", async () => {
+  const { deps, calls } = setup();
+  const { raw, headers } = signed(body([msg("966500009999", "n1")]));
+  assert.equal((await handleWebhook(deps, raw, headers)).status, 200);
+  assert.equal(calls.length, 0);
+});

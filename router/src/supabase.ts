@@ -37,8 +37,8 @@ export class SupabaseRegistry implements Registry {
       return (await r.json()) as Record<string, unknown>[];
     };
     const [t, n] = await Promise.all([
-      get("wa_targets?select=id,name,url,secret,enabled"),
-      get("wa_numbers?select=phone,target_id&enabled=eq.true"),
+      get("wa_targets?select=id,name,url,secret,enabled,is_default"),
+      get("wa_numbers?select=phone,target_id,enabled"),
     ]);
     this.cache = {
       at: Date.now(),
@@ -48,8 +48,9 @@ export class SupabaseRegistry implements Registry {
         url: String(x.url),
         secret: x.secret ? String(x.secret) : undefined,
         enabled: x.enabled !== false,
+        isDefault: x.is_default === true,
       })),
-      routes: n.map((x) => ({ phone: String(x.phone), targetId: String(x.target_id) })),
+      routes: n.map((x) => ({ phone: String(x.phone), targetId: String(x.target_id), enabled: x.enabled !== false })),
     };
   }
 

@@ -21,7 +21,8 @@ export function verifyChallenge(query: URLSearchParams, verifyToken: string): Re
 /**
  * One POST from Meta. Rules:
  *  1. unsigned or wrongly signed requests are dropped (401) and never forwarded;
- *  2. each message is sent to the service that owns the sender's number; unknown numbers are dropped;
+ *  2. each message is sent to the service that owns the sender's number; a number nobody owns goes to the default
+ *     service if one is set (otherwise it is dropped); a registered number that is switched off is dropped;
  *  3. a message id already forwarded is not forwarded again (Meta retries);
  *  4. if one POST holds people of several services, each service gets only its own events, re-signed;
  *  5. if a service fails we answer 502, so Meta retries; messages already delivered elsewhere are not repeated.
@@ -51,13 +52,17 @@ export async function handleWebhook(
 
   const [targets, routes] = await Promise.all([deps.registry.targets(), deps.registry.routes()]);
   const byId = new Map(targets.filter((t) => t.enabled && isSafeTargetUrl(t.url)).map((t) => [t.id, t]));
-  const owner = new Map(routes.map((r) => [r.phone, r.targetId]));
+  const owner = new Map(routes.map((r) => [r.phone, r]));
+  const defaultId = targets.find((t) => t.isDefault && t.enabled && isSafeTargetUrl(t.url))?.id;
 
   // decide per event: which target, or dropped
   const perTarget = new Map<string, WaEvent[]>();
   let dropped = 0;
   for (const ev of events) {
-    const tid = owner.get(ev.phone);
+    const route = owner.get(ev.phone);
+    // a registered number belongs to its service (or is dropped when switched off); only an unregistered number goes to the default service
+    let tid: string | undefined = defaultId;
+    if (route) tid = route.enabled === false ? undefined : route.targetId;
     if (!tid || !byId.has(tid)) {
       dropped++;
       log("unknown_or_disabled_sender", { phone: ev.phone });

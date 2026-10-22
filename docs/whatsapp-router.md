@@ -6,7 +6,7 @@ sender's WhatsApp number. Code: `router/`. Tests: `cd router && npm test` (14 te
 ## Rules (what the code guarantees)
 1. Unsigned or wrongly signed requests are dropped (401) and never forwarded.
 2. A message goes to the service that owns the sender's number. Delivery receipts follow the recipient's number.
-3. An unknown number, or a number whose service is switched off, is never forwarded.
+3. A number nobody owns goes to the **default service** (set it to the existing expense capture, so nobody is cut off). With no default it is dropped. A registered number that is switched off (frozen salesman), or whose service is switched off, is dropped and never handed to the default.
 4. A message id already forwarded is not forwarded again (Meta retries).
 5. One POST with people of several services is split; each service gets only its own events, re-signed so its own
    signature check passes. A POST for one service is forwarded byte for byte.
@@ -32,6 +32,9 @@ Environment variable `ROUTER_REGISTRY_JSON`, one line of JSON:
 ```
 
 The admin screen will later manage the same two lists (add a service = paste its address) without redeploying.
+
+## Before deploying
+Run `platform/db/0004_default_service.sql` once in the Supabase SQL editor (adds the default-service switch). Then in the dashboard (WhatsApp Platform > Services & numbers) add the service `expense` with its current Val Town webhook address and switch **Default** on for it.
 
 ## Deploy
 ```

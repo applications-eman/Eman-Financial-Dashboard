@@ -166,3 +166,17 @@ test("settings: test mode is on until switched off", async () => {
   assert.equal((await call("GET", "/admin/settings")).json.test_mode, false);
   assert.equal((await call("PUT", "/admin/settings/test_mode", { value: "no" })).status, 400);
 });
+
+test("default service: only one at a time", async () => {
+  const { call } = await setup();
+  await call("POST", "/admin/targets", { id: "expense", name: "Expense", url: "https://e.example.com/w" });
+  await call("POST", "/admin/targets", { id: "invoicing", name: "Invoicing", url: "https://i.example.com/w" });
+  assert.equal((await call("PATCH", "/admin/targets/expense", { is_default: true })).json.is_default, true);
+  assert.equal((await call("PATCH", "/admin/targets/invoicing", { is_default: true })).json.is_default, true);
+  const list = (await call("GET", "/admin/targets")).json as { id: string; is_default: boolean }[];
+  assert.deepEqual(
+    list.filter((x) => x.is_default).map((x) => x.id),
+    ["invoicing"],
+  );
+  assert.equal((await call("PATCH", "/admin/targets/invoicing", { is_default: false })).json.is_default, false);
+});

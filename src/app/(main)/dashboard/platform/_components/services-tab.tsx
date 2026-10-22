@@ -21,6 +21,7 @@ interface Target {
   name: string;
   url: string;
   enabled: boolean;
+  is_default: boolean;
   has_secret: boolean;
   numbers: number;
 }
@@ -106,6 +107,7 @@ export function ServicesTab() {
                 <TableHead>Address</TableHead>
                 <TableHead>Numbers</TableHead>
                 <TableHead>On</TableHead>
+                <TableHead>Default</TableHead>
                 <TableHead className="text-end">
                   <span className="sr-only">Actions</span>
                 </TableHead>
@@ -128,6 +130,16 @@ export function ServicesTab() {
                       aria-label={`Service ${r.name} on`}
                       onCheckedChange={async (c) => {
                         await change(() => platform("PATCH", `/targets/${r.id}`, { enabled: c }));
+                        reload();
+                      }}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Switch
+                      checked={r.is_default}
+                      aria-label={`Service ${r.name} receives all other numbers`}
+                      onCheckedChange={async (c) => {
+                        await change(() => platform("PATCH", `/targets/${r.id}`, { is_default: c }));
                         reload();
                       }}
                     />
@@ -169,7 +181,7 @@ export function ServicesTab() {
               ))}
               {targets.rows?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="h-20 text-center text-muted-foreground">
                     No services yet.
                   </TableCell>
                 </TableRow>
@@ -177,6 +189,10 @@ export function ServicesTab() {
             </TableBody>
           </Table>
         </div>
+        <p className="text-muted-foreground text-xs">
+          Default: receives every WhatsApp number that no other service has claimed. Set your existing expense capture
+          as the default, so nobody is cut off when the router goes in front. Only one service can be the default.
+        </p>
         <form onSubmit={addTarget} className="grid items-end gap-2 sm:grid-cols-[1fr_1fr_2fr_auto]">
           <div className="space-y-1">
             <Label htmlFor="t-id">Id (e.g. invoicing)</Label>
