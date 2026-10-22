@@ -64,11 +64,12 @@ async function categoryOptions(db: Db): Promise<Opt[]> {
   return rows.map((r) => ({ id: r.id, title: cut(r.name) }));
 }
 
-async function productOptions(db: Db, categoryId: string | null): Promise<Opt[]> {
+/** Products of a category that are not in the cart yet (a product can be on the invoice only once). */
+async function productOptions(db: Db, categoryId: string | null, inCart: string[] = []): Promise<Opt[]> {
   if (!categoryId) return [];
   const rows = await db.query<{ id: string; name: string; max_price: string }>(
-    `select id, name, max_price from products where category_id = $1 and status = 'active' and max_price is not null and odoo_product_id is not null order by lower(name) limit ${MAX_OPTIONS}`,
-    [categoryId],
+    `select id, name, max_price from products where category_id = $1 and status = 'active' and max_price is not null and odoo_product_id is not null and not (id::text = any($2::text[])) order by lower(name) limit ${MAX_OPTIONS}`,
+    [categoryId, inCart],
   );
   return rows.map((r) => ({
     id: r.id,
@@ -120,7 +121,14 @@ async function itemsScreen(
     screen: "ITEMS",
     data: {
       categories: orPlaceholder(await categoryOptions(db), "No categories available"),
-      products: orPlaceholder(await productOptions(db, category), "Choose a category first"),
+      products: orPlaceholder(
+        await productOptions(
+          db,
+          category,
+          s.lines.map((l) => l.product_id),
+        ),
+        category ? "All products here are in the cart" : "Choose a category first",
+      ),
       cart_text: await cartText(db, s.lines),
       ...(o.error ? { error_message: o.error } : {}),
     },
@@ -288,6 +296,8 @@ async function addItem(db: Db, s: Session, token: string, d: Record<string, unkn
   const bad = (error: string) => itemsScreen(db, s, { category, error });
   const checked = await checkLine(db, d);
   if (!checked.ok) return bad(checked.error);
+  if (s.lines.some((l) => l.product_id === checked.line.productId))
+    return bad("This product is already in the cart. Open the cart and remove it first if you need to change it.");
   const max =
     (await db.query<{ value: number }>(`select value from platform_settings where key='max_lines_per_invoice'`))[0]
       ?.value ?? 20;

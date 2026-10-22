@@ -184,7 +184,15 @@ test("flow: customer list, price rules, cart, review, confirm once", async () =>
   const removed = await handleFlow(w.db, { action: "data_exchange", flow_token: t, data: { action: "remove_last" } });
   assert.match(String(removed.data.review_text), /empty/);
   await add({});
-  await add({ qty: "5", price: "4.20" });
+  // the same product cannot be added twice, not even with another price, and it leaves the product list
+  const dup = await add({ qty: "5", price: "4.20" });
+  assert.match(String(dup.data.error_message), /already in the cart/);
+  assert.equal((dup.data.products as { id: string }[])[0].id, "none");
+  const [second] = await w.db.query(
+    `insert into products (name, category_id, max_price, odoo_product_id) values ('SHAMI - 10', $1, 8.50, 71) returning id`,
+    [w.category],
+  );
+  await add({ product: second.id, qty: "5", price: "4.20" });
   const rev = await handleFlow(w.db, { action: "data_exchange", flow_token: t, data: { action: "open_cart" } });
   assert.equal(rev.screen, "REVIEW");
   assert.match(String(rev.data.review_text), /Before VAT: {2}61\.00\nVAT 15%: {2}9\.15\nTOTAL: {2}70\.15 SAR/);
@@ -718,7 +726,7 @@ test("flow: every answer matches the data the Flow declares for that screen (key
   });
   await step("open cart", { action: "open_cart" });
   await step("remove last", { action: "remove_last" });
-  await step("add again", { action: "add_item", category: w.category, product: w.product, qty: "2", price: "4" });
+  await step("add again", { action: "add_item", category: w.category, product: w.product, qty: "2", price: "4" }); // after remove_last the product is free again
   await step("review", { action: "open_cart" });
   const ok = await step("confirm", { action: "confirm" });
   assert.equal(ok.screen, "SUCCESS");
