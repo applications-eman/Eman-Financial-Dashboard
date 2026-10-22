@@ -58,7 +58,35 @@ export function mountInvoicing<E extends Env>(app: Hono<E>, db: Db, d: Invoicing
       if (e instanceof FlowDecryptError || e instanceof SyntaxError) return c.text("decryption failed", 421 as 400);
       throw e;
     }
-    const out = await handleFlow(db, dec.body);
+    // log what happened (names only, never the customer or amounts) so a stuck step can be diagnosed
+    const started = Date.now();
+    const asked = dec.body as { action?: unknown; screen?: unknown; data?: Record<string, unknown> };
+    let out: Awaited<ReturnType<typeof handleFlow>>;
+    try {
+      out = await handleFlow(db, dec.body);
+    } catch (e) {
+      console.error(
+        JSON.stringify({
+          event: "flow_failed",
+          action: asked.action,
+          screen: asked.screen,
+          error: e instanceof Error ? e.message : String(e),
+        }),
+      );
+      throw e;
+    }
+    console.log(
+      JSON.stringify({
+        event: "flow_step",
+        action: asked.action,
+        screen: asked.screen,
+        step: asked.data?.action,
+        answered: out.screen,
+        keys: Object.keys(out.data),
+        error_message: typeof out.data.error_message === "string" ? out.data.error_message : undefined,
+        ms: Date.now() - started,
+      }),
+    );
     d.kick();
     return c.text(encryptFlowResponse(out, dec.aesKey, dec.iv));
   });
