@@ -14,7 +14,8 @@ export interface WorkerDeps {
   db: Db;
   odoo: OdooPort;
   wa: WaPort;
-  cashJournalId: number;
+  /** Credit basis: leave empty and NO payment is recorded (the invoice stays open). Only set it to pay every invoice into one cash journal. */
+  cashJournalId?: number | null;
   /** sales journal for the invoices; empty = Odoo's default sales journal (a separate test journal while testing) */
   salesJournalId?: number | null;
   workerId: string;
@@ -205,9 +206,9 @@ async function processJob(d: WorkerDeps, job: Job) {
       return;
     }
 
-    // cleared: cash payment in full, then deliver the PDF
+    // cleared: deliver the PDF. Invoices are on credit: no payment is recorded unless a cash journal is configured.
     let paymentNote: string | null = null;
-    if (move.paymentState !== "paid" && move.paymentState !== "in_payment") {
+    if (d.cashJournalId && move.paymentState !== "paid" && move.paymentState !== "in_payment") {
       try {
         await d.odoo.registerPayment(move.id, d.cashJournalId, today);
         await event(d.db, job.id, "payment_registered");

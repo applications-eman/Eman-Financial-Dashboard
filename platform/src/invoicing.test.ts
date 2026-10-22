@@ -51,7 +51,6 @@ async function world() {
     db,
     odoo,
     wa,
-    cashJournalId: 9,
     workerId: "w1",
     today: () => "2026-10-22",
     pendingRetrySeconds: 30,
@@ -277,7 +276,7 @@ async function queued(w: World, qty = "20", price = "4.35", token = "tok1") {
   return r as { id: string; ref_code: string };
 }
 
-test("worker: invoice is created, posted, cleared, paid in cash, PDF delivered, once", async () => {
+test("worker: invoice is created, posted, cleared, PDF delivered, once, and left unpaid (credit)", async () => {
   const w = await world();
   const r = await queued(w);
   assert.equal(await drain(w.worker), 1);
@@ -288,9 +287,9 @@ test("worker: invoice is created, posted, cleared, paid in cash, PDF delivered, 
   assert.equal(row.status, "cleared");
   assert.match(row.invoice_number, /^INV\/2026\//);
   assert.equal(row.zatca_status, "accepted");
-  assert.deepEqual(w.odoo.calls, ["create", "post", "send", "pay", "pdf"]);
+  assert.deepEqual(w.odoo.calls, ["create", "post", "send", "pdf"]);
   assert.equal(w.odoo.moves[0].ref, `WA-${r.ref_code}`);
-  assert.equal(w.odoo.moves[0].paid, true);
+  assert.equal(w.odoo.moves[0].paid, false, "no payment is recorded on credit invoices");
   const doc = w.wa.sent.find((m) => m.kind === "document");
   assert.ok(doc);
   assert.match(doc.text, /ZATCA cleared/);
@@ -298,6 +297,15 @@ test("worker: invoice is created, posted, cleared, paid in cash, PDF delivered, 
   // running again changes nothing
   assert.equal(await drain(w.worker), 0);
   assert.equal(w.odoo.moves.length, 1);
+});
+
+test("worker: payment is recorded only when a cash journal is configured", async () => {
+  const w = await world();
+  w.worker.cashJournalId = 9;
+  await queued(w);
+  await drain(w.worker);
+  assert.deepEqual(w.odoo.calls, ["create", "post", "send", "pay", "pdf"]);
+  assert.equal(w.odoo.moves[0].paid, true);
 });
 
 test("worker: a crash or timeout in the middle never makes a second invoice", async () => {

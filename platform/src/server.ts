@@ -21,7 +21,6 @@ const db = new PgDb(need("DATABASE_URL"));
 const INVOICING_KEYS = [
   "ODOO_URL",
   "ODOO_API_KEY",
-  "ODOO_CASH_JOURNAL_ID",
   "WA_PHONE_NUMBER_ID",
   "WA_TOKEN",
   "FLOW_ID",
@@ -49,7 +48,7 @@ if (missing.length === 0) {
     db,
     odoo,
     wa,
-    cashJournalId: Number(need("ODOO_CASH_JOURNAL_ID")),
+    cashJournalId: process.env.ODOO_CASH_JOURNAL_ID ? Number(process.env.ODOO_CASH_JOURNAL_ID) : null,
     salesJournalId: process.env.ODOO_SALES_JOURNAL_ID ? Number(process.env.ODOO_SALES_JOURNAL_ID) : null,
     workerId: randomUUID(),
   };
