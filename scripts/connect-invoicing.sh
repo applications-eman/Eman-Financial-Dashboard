@@ -18,8 +18,10 @@ put_secret() {
   if secret_exists "$1"; then printf '%s' "$2" | gcloud secrets versions add "$1" --data-file=- --project "$PROJECT_ID" >/dev/null
   else printf '%s' "$2" | gcloud secrets create "$1" --data-file=- --replication-policy=automatic --project "$PROJECT_ID" >/dev/null; fi
 }
-ask() { local v; read -rp "$1: " v; printf '%s' "$v"; }
-ask_hidden() { local v; read -rsp "$1 (typing is hidden): " v; echo >&2; printf '%s' "$v"; }
+# every answer is trimmed; an empty answer is refused and asked again (an extra Enter must not shift the answers)
+ask() { local v; while :; do read -rp "$1: " v; v="$(printf '%s' "$v" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"; [ -n "$v" ] && break; echo "  (empty - please type the value)" >&2; done; printf '%s' "$v"; }
+ask_digits() { local v; while :; do v="$(ask "$1")"; [[ "$v" =~ ^[0-9]+$ ]] && break; echo "  (numbers only - please try again)" >&2; done; printf '%s' "$v"; }
+ask_hidden() { local v; while :; do read -rsp "$1 (typing is hidden): " v; echo >&2; v="$(printf '%s' "$v" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"; [ -n "$v" ] && break; echo "  (empty - please paste the value)" >&2; done; echo "  (received ${#v} characters)" >&2; printf '%s' "$v"; }
 json_get() { python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get(sys.argv[1],""))' "$1"; }
 
 gcloud services enable cloudscheduler.googleapis.com secretmanager.googleapis.com --project "$PROJECT_ID"
@@ -29,16 +31,16 @@ echo "== Odoo =="
 put_secret eman-platform-odoo-url "$(ask 'Odoo address, e.g. https://yourcompany.odoo.com (no slash at the end)')"
 put_secret eman-platform-odoo-db "$(ask 'Odoo database name (usually the first part of the address)')"
 put_secret eman-platform-odoo-key "$(ask_hidden 'Odoo API key')"
-SALES_JOURNAL="$(ask 'Odoo id of the SALES journal for these invoices (use 23 = WhatsApp Test while testing)')"
+SALES_JOURNAL="$(ask_digits 'Odoo id of the SALES journal for these invoices (use 23 = WhatsApp Test while testing)')"
 
 echo "== WhatsApp (Meta) =="
-WA_PHONE="$(ask 'WhatsApp Phone number ID (Meta > WhatsApp > API setup)')"
+WA_PHONE="$(ask_digits 'WhatsApp Phone number ID (Meta > WhatsApp > API setup)')"
 WA_TOKEN="$(ask_hidden 'WhatsApp access token of the system user')"
 put_secret eman-platform-wa-phone-id "$WA_PHONE"
 put_secret eman-platform-wa-token "$WA_TOKEN"
 put_secret eman-platform-app-secret "$(ask_hidden 'Meta App secret (Meta app > Settings > Basic)')"
-WABA="$(ask 'WhatsApp account id (the account that owns the number)')"
-APP_ID="$(ask 'Meta app id (the app that receives your webhooks)')"
+WABA="$(ask_digits 'WhatsApp account id (the account that owns the number)')"
+APP_ID="$(ask_digits 'Meta app id (the app that receives your webhooks)')"
 
 echo
 echo "== Flow encryption key =="
@@ -58,7 +60,8 @@ else
   read -rp "Path to the EXISTING Flow private key file of this number: " KEYFILE
   [ -f "$KEYFILE" ] || { echo "File not found: $KEYFILE"; exit 1; }
   put_secret eman-platform-flow-key "$(cat "$KEYFILE")"
-  PASS="$(ask_hidden 'Passphrase of that key (press Enter if it has none)')"
+  read -rsp "Passphrase of that key (press Enter if it has none; typing is hidden): " PASS; echo
+  PASS="$(printf '%s' "$PASS" | tr -d '\r')"
   if [ -n "$PASS" ]; then put_secret eman-platform-flow-key-pass "$PASS"; HAS_PASS=1; fi
 fi
 
