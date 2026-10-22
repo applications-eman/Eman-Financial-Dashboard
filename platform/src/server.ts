@@ -31,8 +31,7 @@ const INVOICING_KEYS = [
 ];
 const missing = INVOICING_KEYS.filter((k) => !process.env[k]);
 
-let invoicing: AppDeps["invoicing"];
-if (missing.length === 0) {
+function buildInvoicing(): NonNullable<AppDeps["invoicing"]> {
   const odoo = new Json2Odoo({
     url: need("ODOO_URL"),
     db: process.env.ODOO_DB || undefined,
@@ -54,6 +53,8 @@ if (missing.length === 0) {
     salesJournalId: process.env.ODOO_SALES_JOURNAL_ID ? Number(process.env.ODOO_SALES_JOURNAL_ID) : null,
     workerId: randomUUID(),
   };
+  // read first: a key that cannot be read must stop invoicing before anything is started
+  const flowKey = loadPrivateKey(need("FLOW_PRIVATE_KEY"), process.env.FLOW_PRIVATE_KEY_PASSPHRASE);
   let running: Promise<number> | null = null;
   const drainNow = () => {
     // one pass at a time inside this instance (the database lock covers other instances)
@@ -65,18 +66,25 @@ if (missing.length === 0) {
   const kick = () =>
     void drainNow().catch((e: unknown) => log("drain_failed", { error: e instanceof Error ? e.message : String(e) }));
   setInterval(kick, 30_000).unref();
-  invoicing = {
-    odoo,
-    wa,
-    flowKey: loadPrivateKey(need("FLOW_PRIVATE_KEY"), process.env.FLOW_PRIVATE_KEY_PASSPHRASE),
-    appSecret: need("META_APP_SECRET"),
-    tickSecret: need("TICK_SECRET"),
-    kick,
-    drainNow,
-  };
-  log("invoicing_enabled");
-} else {
+  return { odoo, wa, flowKey, appSecret: need("META_APP_SECRET"), tickSecret: need("TICK_SECRET"), kick, drainNow };
+}
+
+// A problem with the invoicing settings must never take the admin screens down: invoicing stays off and /health says why.
+let invoicing: AppDeps["invoicing"];
+let invoicingStatus = "off";
+if (missing.length > 0) {
   log("invoicing_disabled", { missing });
+  invoicingStatus = `off: missing ${missing.join(", ")}`;
+} else {
+  try {
+    invoicing = buildInvoicing();
+    invoicingStatus = "on";
+    log("invoicing_enabled");
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    log("invoicing_failed_to_start", { error: reason });
+    invoicingStatus = `off: ${reason.slice(0, 160)}`;
+  }
 }
 
 const app = createApp({
@@ -91,6 +99,7 @@ const app = createApp({
     .map((s) => s.trim())
     .filter(Boolean),
   invoicing,
+  invoicingStatus,
 });
 
 serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 8080) }, (i) => log("platform_started", { port: i.port }));

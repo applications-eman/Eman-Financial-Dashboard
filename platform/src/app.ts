@@ -26,6 +26,8 @@ export interface AppDeps {
   fetch?: typeof fetch;
   /** present when Odoo and WhatsApp are configured */
   invoicing?: InvoicingDeps;
+  /** shown by /health, e.g. "on" or "off: <reason>" */
+  invoicingStatus?: string;
 }
 
 type Vars = { Variables: { actor: Actor } };
@@ -92,7 +94,7 @@ export function createApp(deps: AppDeps) {
     }),
   );
 
-  app.get("/health", (c) => c.json({ ok: true }));
+  app.get("/health", (c) => c.json({ ok: true, invoicing: deps.invoicingStatus ?? (deps.invoicing ? "on" : "off") }));
   if (deps.invoicing) mountInvoicing(app, db, deps.invoicing);
 
   app.onError((e, c) => {

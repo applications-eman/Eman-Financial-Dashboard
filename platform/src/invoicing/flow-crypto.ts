@@ -24,9 +24,21 @@ export interface DecryptedFlowRequest {
 }
 export class FlowDecryptError extends Error {}
 
+/**
+ * Reads a PEM private key however it was stored: real line breaks, or one line with "\n" typed out (also doubled,
+ * as environment variable editors often do), with or without surrounding quotes, with or without a passphrase.
+ */
+export function normalizePem(raw: string): string {
+  let s = raw.trim();
+  if (s.length > 1 && (s.startsWith('"') || s.startsWith("'")) && s.endsWith(s[0])) s = s.slice(1, -1);
+  return `${s
+    .replace(/\\+r?\\*n/g, "\n")
+    .replace(/\r\n/g, "\n")
+    .trim()}\n`;
+}
+
 export function loadPrivateKey(pem: string, passphrase?: string): KeyObject {
-  const normalized = pem.includes("\\n") ? pem.replace(/\\n/g, "\n") : pem;
-  return createPrivateKey({ key: normalized, ...(passphrase ? { passphrase } : {}) });
+  return createPrivateKey({ key: normalizePem(pem), ...(passphrase ? { passphrase: passphrase.trim() } : {}) });
 }
 
 export function decryptFlowRequest(env: FlowEnvelope, privateKey: KeyObject): DecryptedFlowRequest {
