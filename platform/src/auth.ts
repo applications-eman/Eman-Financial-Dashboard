@@ -25,13 +25,14 @@ export interface AuthCfg {
 }
 
 const b64u = (s: string) => Buffer.from(s, "base64url");
-let jwksCache: { at: number; base: string; keys: any[] } | undefined;
+type Jwk = JsonWebKey & { kid?: string };
+let jwksCache: { at: number; base: string; keys: Jwk[] } | undefined;
 
-async function jwks(cfg: AuthCfg): Promise<any[]> {
+async function jwks(cfg: AuthCfg): Promise<Jwk[]> {
   if (jwksCache && jwksCache.base === cfg.issuerBase && Date.now() - jwksCache.at < 10 * 60_000) return jwksCache.keys;
   const r = await cfg.fetch(`${cfg.issuerBase}/auth/v1/.well-known/jwks.json`);
   if (!r.ok) return [];
-  const { keys } = (await r.json()) as { keys: any[] };
+  const { keys } = (await r.json()) as { keys: Jwk[] };
   jwksCache = { at: Date.now(), base: cfg.issuerBase, keys };
   return keys;
 }

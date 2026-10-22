@@ -13,3 +13,5 @@ whatsapp
 npm-debug.log
 Dockerfile
 .dockerignore
+platform
+router

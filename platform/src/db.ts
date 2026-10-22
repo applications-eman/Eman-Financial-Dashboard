@@ -1,8 +1,11 @@
 import pg from "pg";
 
+// biome-ignore lint/suspicious/noExplicitAny: untyped query rows; callers narrow with the generic parameter
+export type Row = Record<string, any>;
+
 /** The only way the service talks to Postgres. Production: a pooled connection. Tests: an in-process Postgres. */
 export interface Db {
-  query<T = Record<string, any>>(sql: string, params?: unknown[]): Promise<T[]>;
+  query<T = Row>(sql: string, params?: unknown[]): Promise<T[]>;
   /** all-or-nothing group of statements */
   tx<T>(fn: (t: Db) => Promise<T>): Promise<T>;
 }
@@ -17,14 +20,14 @@ export class PgDb implements Db {
       ssl: { rejectUnauthorized: false },
     });
   }
-  async query<T = Record<string, any>>(sql: string, params: unknown[] = []): Promise<T[]> {
-    return (await this.pool.query(sql, params as any[])).rows as T[];
+  async query<T = Row>(sql: string, params: unknown[] = []): Promise<T[]> {
+    return (await this.pool.query(sql, params as unknown[])).rows as T[];
   }
   async tx<T>(fn: (t: Db) => Promise<T>): Promise<T> {
     const c = await this.pool.connect();
     const inner: Db = {
-      query: async <R = Record<string, any>>(sql: string, params: unknown[] = []) =>
-        (await c.query(sql, params as any[])).rows as R[],
+      query: async <R = Row>(sql: string, params: unknown[] = []) =>
+        (await c.query(sql, params as unknown[])).rows as R[],
       tx: (f) => f(inner), // already inside a transaction
     };
     try {

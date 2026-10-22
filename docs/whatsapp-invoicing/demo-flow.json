@@ -1,551 +1,551 @@
 {
- "version": "6.0",
- "screens": [
-  {
-   "id": "CUSTOMER",
-   "title": "Customer",
-   "data": {},
-   "layout": {
-    "type": "SingleColumnLayout",
-    "children": [
-     {
-      "type": "TextHeading",
-      "text": "Choose the customer"
-     },
-     {
-      "type": "TextBody",
-      "text": "Demo data. In the real system this list holds only this salesman's own customers, with a search box."
-     },
-     {
-      "type": "Dropdown",
-      "label": "Customer",
-      "name": "customer",
-      "required": true,
-      "data-source": [
-       {
-        "id": "Al Noor Supermarket",
-        "title": "Al Noor Supermarket"
-       },
-       {
-        "id": "Baraka Mini Market",
-        "title": "Baraka Mini Market"
-       },
-       {
-        "id": "Hamdan Restaurant",
-        "title": "Hamdan Restaurant"
-       },
-       {
-        "id": "Safa Grocery",
-        "title": "Safa Grocery"
-       },
-       {
-        "id": "Al Falaah Mart",
-        "title": "Al Falaah Mart"
-       },
-       {
-        "id": "Aswaq Al Diwan",
-        "title": "Aswaq Al Diwan"
-       },
-       {
-        "id": "Faisal Super Market",
-        "title": "Faisal Super Market"
-       },
-       {
-        "id": "Qairawan Foodstuff",
-        "title": "Qairawan Foodstuff"
-       },
-       {
-        "id": "Rawabi Bakery Cafe",
-        "title": "Rawabi Bakery Cafe"
-       },
-       {
-        "id": "Jannat Restaurant",
-        "title": "Jannat Restaurant"
-       },
-       {
-        "id": "Shami Fast Food",
-        "title": "Shami Fast Food"
-       },
-       {
-        "id": "Fresh Chick",
-        "title": "Fresh Chick"
-       }
-      ]
-     },
-     {
-      "type": "Footer",
-      "label": "Continue",
-      "on-click-action": {
-       "name": "navigate",
-       "next": {
-        "type": "screen",
-        "name": "CATEGORY"
-       },
-       "payload": {
-        "customer": "${form.customer}"
-       }
+  "version": "6.0",
+  "screens": [
+    {
+      "id": "CUSTOMER",
+      "title": "Customer",
+      "data": {},
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Choose the customer"
+          },
+          {
+            "type": "TextBody",
+            "text": "Demo data. In the real system this list holds only this salesman's own customers, with a search box."
+          },
+          {
+            "type": "Dropdown",
+            "label": "Customer",
+            "name": "customer",
+            "required": true,
+            "data-source": [
+              {
+                "id": "Al Noor Supermarket",
+                "title": "Al Noor Supermarket"
+              },
+              {
+                "id": "Baraka Mini Market",
+                "title": "Baraka Mini Market"
+              },
+              {
+                "id": "Hamdan Restaurant",
+                "title": "Hamdan Restaurant"
+              },
+              {
+                "id": "Safa Grocery",
+                "title": "Safa Grocery"
+              },
+              {
+                "id": "Al Falaah Mart",
+                "title": "Al Falaah Mart"
+              },
+              {
+                "id": "Aswaq Al Diwan",
+                "title": "Aswaq Al Diwan"
+              },
+              {
+                "id": "Faisal Super Market",
+                "title": "Faisal Super Market"
+              },
+              {
+                "id": "Qairawan Foodstuff",
+                "title": "Qairawan Foodstuff"
+              },
+              {
+                "id": "Rawabi Bakery Cafe",
+                "title": "Rawabi Bakery Cafe"
+              },
+              {
+                "id": "Jannat Restaurant",
+                "title": "Jannat Restaurant"
+              },
+              {
+                "id": "Shami Fast Food",
+                "title": "Shami Fast Food"
+              },
+              {
+                "id": "Fresh Chick",
+                "title": "Fresh Chick"
+              }
+            ]
+          },
+          {
+            "type": "Footer",
+            "label": "Continue",
+            "on-click-action": {
+              "name": "navigate",
+              "next": {
+                "type": "screen",
+                "name": "CATEGORY"
+              },
+              "payload": {
+                "customer": "${form.customer}"
+              }
+            }
+          }
+        ]
       }
-     }
-    ]
-   }
-  },
-  {
-   "id": "CATEGORY",
-   "title": "Category",
-   "data": {
-    "customer": {
-     "type": "string",
-     "__example__": "Al Noor Supermarket"
+    },
+    {
+      "id": "CATEGORY",
+      "title": "Category",
+      "data": {
+        "customer": {
+          "type": "string",
+          "__example__": "Al Noor Supermarket"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Choose a product category"
+          },
+          {
+            "type": "RadioButtonsGroup",
+            "label": "Category",
+            "name": "category",
+            "required": true,
+            "data-source": [
+              {
+                "id": "shami",
+                "title": "Shami"
+              },
+              {
+                "id": "labanani",
+                "title": "Labanani"
+              },
+              {
+                "id": "chapathi",
+                "title": "Chapathi"
+              },
+              {
+                "id": "felafil",
+                "title": "Felafil"
+              },
+              {
+                "id": "samooli",
+                "title": "Samooli"
+              }
+            ]
+          },
+          {
+            "type": "Footer",
+            "label": "Continue",
+            "on-click-action": {
+              "name": "navigate",
+              "next": {
+                "type": "screen",
+                "name": "PRODUCT"
+              },
+              "payload": {
+                "customer": "${data.customer}",
+                "category": "${form.category}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "PRODUCT",
+      "title": "Product",
+      "data": {
+        "customer": {
+          "type": "string",
+          "__example__": "Al Noor Supermarket"
+        },
+        "category": {
+          "type": "string",
+          "__example__": "shami"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Add the product"
+          },
+          {
+            "type": "If",
+            "condition": "${data.category} == 'shami'",
+            "then": [
+              {
+                "type": "Dropdown",
+                "label": "Product",
+                "name": "product_shami",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "SHAMI - 5",
+                    "title": "SHAMI - 5",
+                    "description": "Maximum price 4.50 before VAT"
+                  },
+                  {
+                    "id": "SHAMI - 4",
+                    "title": "SHAMI - 4",
+                    "description": "Maximum price 3.80 before VAT"
+                  },
+                  {
+                    "id": "SHAMI - 3",
+                    "title": "SHAMI - 3",
+                    "description": "Maximum price 3.00 before VAT"
+                  },
+                  {
+                    "id": "SHAMI - 2",
+                    "title": "SHAMI - 2",
+                    "description": "Maximum price 2.20 before VAT"
+                  },
+                  {
+                    "id": "SHAMI - 25",
+                    "title": "SHAMI - 25",
+                    "description": "Maximum price 18.00 before VAT"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "If",
+            "condition": "${data.category} == 'labanani'",
+            "then": [
+              {
+                "type": "Dropdown",
+                "label": "Product",
+                "name": "product_labanani",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "LABANANI - 3",
+                    "title": "LABANANI - 3",
+                    "description": "Maximum price 6.50 before VAT"
+                  },
+                  {
+                    "id": "LABANANI - 5",
+                    "title": "LABANANI - 5",
+                    "description": "Maximum price 9.00 before VAT"
+                  },
+                  {
+                    "id": "LABANANI Medium - 8",
+                    "title": "LABANANI Medium - 8",
+                    "description": "Maximum price 11.00 before VAT"
+                  },
+                  {
+                    "id": "LABANANI Medium - 10",
+                    "title": "LABANANI Medium - 10",
+                    "description": "Maximum price 13.5 before VAT"
+                  },
+                  {
+                    "id": "LABANANI BIG",
+                    "title": "LABANANI BIG",
+                    "description": "Maximum price 15.00 before VAT"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "If",
+            "condition": "${data.category} == 'chapathi'",
+            "then": [
+              {
+                "type": "Dropdown",
+                "label": "Product",
+                "name": "product_chapathi",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "CHAPATHI Medium - 8",
+                    "title": "CHAPATHI Medium - 8",
+                    "description": "Maximum price 8.00 before VAT"
+                  },
+                  {
+                    "id": "CHAPATHI Medium - 10",
+                    "title": "CHAPATHI Medium - 10",
+                    "description": "Maximum price 9.50 before VAT"
+                  },
+                  {
+                    "id": "CHAPATHI LARGE - 6",
+                    "title": "CHAPATHI LARGE - 6",
+                    "description": "Maximum price 7.00 before VAT"
+                  },
+                  {
+                    "id": "CHAPATHI LARGE - 10",
+                    "title": "CHAPATHI LARGE - 10",
+                    "description": "Maximum price 11.00 before VAT"
+                  },
+                  {
+                    "id": "CHAPATHI XL - 6",
+                    "title": "CHAPATHI XL - 6",
+                    "description": "Maximum price 8.50 before VAT"
+                  },
+                  {
+                    "id": "CHAPATHI XL - 10",
+                    "title": "CHAPATHI XL - 10",
+                    "description": "Maximum price 12.50 before VAT"
+                  },
+                  {
+                    "id": "CHAPATHI XXL - 6",
+                    "title": "CHAPATHI XXL - 6",
+                    "description": "Maximum price 9.50 before VAT"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "If",
+            "condition": "${data.category} == 'felafil'",
+            "then": [
+              {
+                "type": "Dropdown",
+                "label": "Product",
+                "name": "product_felafil",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "FELAFIL",
+                    "title": "FELAFIL",
+                    "description": "Maximum price 5.00 before VAT"
+                  },
+                  {
+                    "id": "FELAFIL - 2",
+                    "title": "FELAFIL - 2",
+                    "description": "Maximum price 7.50 before VAT"
+                  },
+                  {
+                    "id": "FELAFIL - 3",
+                    "title": "FELAFIL - 3",
+                    "description": "Maximum price 10.00 before VAT"
+                  },
+                  {
+                    "id": "FELAFIL SP",
+                    "title": "FELAFIL SP",
+                    "description": "Maximum price 6.00 before VAT"
+                  },
+                  {
+                    "id": "FELAFIL THALLA",
+                    "title": "FELAFIL THALLA",
+                    "description": "Maximum price 12.00 before VAT"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "If",
+            "condition": "${data.category} == 'samooli'",
+            "then": [
+              {
+                "type": "Dropdown",
+                "label": "Product",
+                "name": "product_samooli",
+                "required": true,
+                "data-source": [
+                  {
+                    "id": "SAMOOLI",
+                    "title": "SAMOOLI",
+                    "description": "Maximum price 4.00 before VAT"
+                  },
+                  {
+                    "id": "SAMOOLI - 2",
+                    "title": "SAMOOLI - 2",
+                    "description": "Maximum price 7.50 before VAT"
+                  },
+                  {
+                    "id": "SAMOOLI BIG",
+                    "title": "SAMOOLI BIG",
+                    "description": "Maximum price 6.50 before VAT"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "TextInput",
+            "label": "Quantity",
+            "name": "qty",
+            "input-type": "number",
+            "required": true
+          },
+          {
+            "type": "TextInput",
+            "label": "Price per unit, before VAT",
+            "name": "price",
+            "input-type": "number",
+            "required": true,
+            "helper-text": "The maximum is shown under each product"
+          },
+          {
+            "type": "Footer",
+            "label": "Continue",
+            "on-click-action": {
+              "name": "navigate",
+              "next": {
+                "type": "screen",
+                "name": "REVIEW"
+              },
+              "payload": {
+                "customer": "${data.customer}",
+                "category": "${data.category}",
+                "qty": "${form.qty}",
+                "price": "${form.price}",
+                "product_shami": "${form.product_shami}",
+                "product_labanani": "${form.product_labanani}",
+                "product_chapathi": "${form.product_chapathi}",
+                "product_felafil": "${form.product_felafil}",
+                "product_samooli": "${form.product_samooli}"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "REVIEW",
+      "title": "Please check",
+      "terminal": true,
+      "success": true,
+      "data": {
+        "customer": {
+          "type": "string",
+          "__example__": "Al Noor Supermarket"
+        },
+        "category": {
+          "type": "string",
+          "__example__": "shami"
+        },
+        "qty": {
+          "type": "number",
+          "__example__": 20
+        },
+        "price": {
+          "type": "number",
+          "__example__": 4.35
+        },
+        "product_shami": {
+          "type": "string",
+          "__example__": "SHAMI - 5"
+        },
+        "product_labanani": {
+          "type": "string",
+          "__example__": "LABANANI - 3"
+        },
+        "product_chapathi": {
+          "type": "string",
+          "__example__": "CHAPATHI XL - 6"
+        },
+        "product_felafil": {
+          "type": "string",
+          "__example__": "FELAFIL"
+        },
+        "product_samooli": {
+          "type": "string",
+          "__example__": "SAMOOLI"
+        }
+      },
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "Please check"
+          },
+          {
+            "type": "TextBody",
+            "text": "Customer: ${data.customer}"
+          },
+          {
+            "type": "TextBody",
+            "text": "Category: ${data.category}"
+          },
+          {
+            "type": "If",
+            "condition": "${data.category} == 'shami'",
+            "then": [
+              {
+                "type": "TextBody",
+                "text": "Product: ${data.product_shami}"
+              }
+            ]
+          },
+          {
+            "type": "If",
+            "condition": "${data.category} == 'labanani'",
+            "then": [
+              {
+                "type": "TextBody",
+                "text": "Product: ${data.product_labanani}"
+              }
+            ]
+          },
+          {
+            "type": "If",
+            "condition": "${data.category} == 'chapathi'",
+            "then": [
+              {
+                "type": "TextBody",
+                "text": "Product: ${data.product_chapathi}"
+              }
+            ]
+          },
+          {
+            "type": "If",
+            "condition": "${data.category} == 'felafil'",
+            "then": [
+              {
+                "type": "TextBody",
+                "text": "Product: ${data.product_felafil}"
+              }
+            ]
+          },
+          {
+            "type": "If",
+            "condition": "${data.category} == 'samooli'",
+            "then": [
+              {
+                "type": "TextBody",
+                "text": "Product: ${data.product_samooli}"
+              }
+            ]
+          },
+          {
+            "type": "TextBody",
+            "text": "Quantity: ${data.qty}"
+          },
+          {
+            "type": "TextBody",
+            "text": "Price before VAT: ${data.price}"
+          },
+          {
+            "type": "TextCaption",
+            "text": "In the real system the totals, VAT and the cart with several lines are shown here."
+          },
+          {
+            "type": "Footer",
+            "label": "Confirm (demo)",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "customer": "${data.customer}",
+                "category": "${data.category}",
+                "qty": "${data.qty}",
+                "price": "${data.price}",
+                "product_shami": "${data.product_shami}",
+                "product_labanani": "${data.product_labanani}",
+                "product_chapathi": "${data.product_chapathi}",
+                "product_felafil": "${data.product_felafil}",
+                "product_samooli": "${data.product_samooli}"
+              }
+            }
+          }
+        ]
+      }
     }
-   },
-   "layout": {
-    "type": "SingleColumnLayout",
-    "children": [
-     {
-      "type": "TextHeading",
-      "text": "Choose a product category"
-     },
-     {
-      "type": "RadioButtonsGroup",
-      "label": "Category",
-      "name": "category",
-      "required": true,
-      "data-source": [
-       {
-        "id": "shami",
-        "title": "Shami"
-       },
-       {
-        "id": "labanani",
-        "title": "Labanani"
-       },
-       {
-        "id": "chapathi",
-        "title": "Chapathi"
-       },
-       {
-        "id": "felafil",
-        "title": "Felafil"
-       },
-       {
-        "id": "samooli",
-        "title": "Samooli"
-       }
-      ]
-     },
-     {
-      "type": "Footer",
-      "label": "Continue",
-      "on-click-action": {
-       "name": "navigate",
-       "next": {
-        "type": "screen",
-        "name": "PRODUCT"
-       },
-       "payload": {
-        "customer": "${data.customer}",
-        "category": "${form.category}"
-       }
-      }
-     }
-    ]
-   }
-  },
-  {
-   "id": "PRODUCT",
-   "title": "Product",
-   "data": {
-    "customer": {
-     "type": "string",
-     "__example__": "Al Noor Supermarket"
-    },
-    "category": {
-     "type": "string",
-     "__example__": "shami"
-    }
-   },
-   "layout": {
-    "type": "SingleColumnLayout",
-    "children": [
-     {
-      "type": "TextHeading",
-      "text": "Add the product"
-     },
-     {
-      "type": "If",
-      "condition": "${data.category} == 'shami'",
-      "then": [
-       {
-        "type": "Dropdown",
-        "label": "Product",
-        "name": "product_shami",
-        "required": true,
-        "data-source": [
-         {
-          "id": "SHAMI - 5",
-          "title": "SHAMI - 5",
-          "description": "Maximum price 4.50 before VAT"
-         },
-         {
-          "id": "SHAMI - 4",
-          "title": "SHAMI - 4",
-          "description": "Maximum price 3.80 before VAT"
-         },
-         {
-          "id": "SHAMI - 3",
-          "title": "SHAMI - 3",
-          "description": "Maximum price 3.00 before VAT"
-         },
-         {
-          "id": "SHAMI - 2",
-          "title": "SHAMI - 2",
-          "description": "Maximum price 2.20 before VAT"
-         },
-         {
-          "id": "SHAMI - 25",
-          "title": "SHAMI - 25",
-          "description": "Maximum price 18.00 before VAT"
-         }
-        ]
-       }
-      ]
-     },
-     {
-      "type": "If",
-      "condition": "${data.category} == 'labanani'",
-      "then": [
-       {
-        "type": "Dropdown",
-        "label": "Product",
-        "name": "product_labanani",
-        "required": true,
-        "data-source": [
-         {
-          "id": "LABANANI - 3",
-          "title": "LABANANI - 3",
-          "description": "Maximum price 6.50 before VAT"
-         },
-         {
-          "id": "LABANANI - 5",
-          "title": "LABANANI - 5",
-          "description": "Maximum price 9.00 before VAT"
-         },
-         {
-          "id": "LABANANI Medium - 8",
-          "title": "LABANANI Medium - 8",
-          "description": "Maximum price 11.00 before VAT"
-         },
-         {
-          "id": "LABANANI Medium - 10",
-          "title": "LABANANI Medium - 10",
-          "description": "Maximum price 13.5 before VAT"
-         },
-         {
-          "id": "LABANANI BIG",
-          "title": "LABANANI BIG",
-          "description": "Maximum price 15.00 before VAT"
-         }
-        ]
-       }
-      ]
-     },
-     {
-      "type": "If",
-      "condition": "${data.category} == 'chapathi'",
-      "then": [
-       {
-        "type": "Dropdown",
-        "label": "Product",
-        "name": "product_chapathi",
-        "required": true,
-        "data-source": [
-         {
-          "id": "CHAPATHI Medium - 8",
-          "title": "CHAPATHI Medium - 8",
-          "description": "Maximum price 8.00 before VAT"
-         },
-         {
-          "id": "CHAPATHI Medium - 10",
-          "title": "CHAPATHI Medium - 10",
-          "description": "Maximum price 9.50 before VAT"
-         },
-         {
-          "id": "CHAPATHI LARGE - 6",
-          "title": "CHAPATHI LARGE - 6",
-          "description": "Maximum price 7.00 before VAT"
-         },
-         {
-          "id": "CHAPATHI LARGE - 10",
-          "title": "CHAPATHI LARGE - 10",
-          "description": "Maximum price 11.00 before VAT"
-         },
-         {
-          "id": "CHAPATHI XL - 6",
-          "title": "CHAPATHI XL - 6",
-          "description": "Maximum price 8.50 before VAT"
-         },
-         {
-          "id": "CHAPATHI XL - 10",
-          "title": "CHAPATHI XL - 10",
-          "description": "Maximum price 12.50 before VAT"
-         },
-         {
-          "id": "CHAPATHI XXL - 6",
-          "title": "CHAPATHI XXL - 6",
-          "description": "Maximum price 9.50 before VAT"
-         }
-        ]
-       }
-      ]
-     },
-     {
-      "type": "If",
-      "condition": "${data.category} == 'felafil'",
-      "then": [
-       {
-        "type": "Dropdown",
-        "label": "Product",
-        "name": "product_felafil",
-        "required": true,
-        "data-source": [
-         {
-          "id": "FELAFIL",
-          "title": "FELAFIL",
-          "description": "Maximum price 5.00 before VAT"
-         },
-         {
-          "id": "FELAFIL - 2",
-          "title": "FELAFIL - 2",
-          "description": "Maximum price 7.50 before VAT"
-         },
-         {
-          "id": "FELAFIL - 3",
-          "title": "FELAFIL - 3",
-          "description": "Maximum price 10.00 before VAT"
-         },
-         {
-          "id": "FELAFIL SP",
-          "title": "FELAFIL SP",
-          "description": "Maximum price 6.00 before VAT"
-         },
-         {
-          "id": "FELAFIL THALLA",
-          "title": "FELAFIL THALLA",
-          "description": "Maximum price 12.00 before VAT"
-         }
-        ]
-       }
-      ]
-     },
-     {
-      "type": "If",
-      "condition": "${data.category} == 'samooli'",
-      "then": [
-       {
-        "type": "Dropdown",
-        "label": "Product",
-        "name": "product_samooli",
-        "required": true,
-        "data-source": [
-         {
-          "id": "SAMOOLI",
-          "title": "SAMOOLI",
-          "description": "Maximum price 4.00 before VAT"
-         },
-         {
-          "id": "SAMOOLI - 2",
-          "title": "SAMOOLI - 2",
-          "description": "Maximum price 7.50 before VAT"
-         },
-         {
-          "id": "SAMOOLI BIG",
-          "title": "SAMOOLI BIG",
-          "description": "Maximum price 6.50 before VAT"
-         }
-        ]
-       }
-      ]
-     },
-     {
-      "type": "TextInput",
-      "label": "Quantity",
-      "name": "qty",
-      "input-type": "number",
-      "required": true
-     },
-     {
-      "type": "TextInput",
-      "label": "Price per unit, before VAT",
-      "name": "price",
-      "input-type": "number",
-      "required": true,
-      "helper-text": "The maximum is shown under each product"
-     },
-     {
-      "type": "Footer",
-      "label": "Continue",
-      "on-click-action": {
-       "name": "navigate",
-       "next": {
-        "type": "screen",
-        "name": "REVIEW"
-       },
-       "payload": {
-        "customer": "${data.customer}",
-        "category": "${data.category}",
-        "qty": "${form.qty}",
-        "price": "${form.price}",
-        "product_shami": "${form.product_shami}",
-        "product_labanani": "${form.product_labanani}",
-        "product_chapathi": "${form.product_chapathi}",
-        "product_felafil": "${form.product_felafil}",
-        "product_samooli": "${form.product_samooli}"
-       }
-      }
-     }
-    ]
-   }
-  },
-  {
-   "id": "REVIEW",
-   "title": "Please check",
-   "terminal": true,
-   "success": true,
-   "data": {
-    "customer": {
-     "type": "string",
-     "__example__": "Al Noor Supermarket"
-    },
-    "category": {
-     "type": "string",
-     "__example__": "shami"
-    },
-    "qty": {
-     "type": "number",
-     "__example__": 20
-    },
-    "price": {
-     "type": "number",
-     "__example__": 4.35
-    },
-    "product_shami": {
-     "type": "string",
-     "__example__": "SHAMI - 5"
-    },
-    "product_labanani": {
-     "type": "string",
-     "__example__": "LABANANI - 3"
-    },
-    "product_chapathi": {
-     "type": "string",
-     "__example__": "CHAPATHI XL - 6"
-    },
-    "product_felafil": {
-     "type": "string",
-     "__example__": "FELAFIL"
-    },
-    "product_samooli": {
-     "type": "string",
-     "__example__": "SAMOOLI"
-    }
-   },
-   "layout": {
-    "type": "SingleColumnLayout",
-    "children": [
-     {
-      "type": "TextHeading",
-      "text": "Please check"
-     },
-     {
-      "type": "TextBody",
-      "text": "Customer: ${data.customer}"
-     },
-     {
-      "type": "TextBody",
-      "text": "Category: ${data.category}"
-     },
-     {
-      "type": "If",
-      "condition": "${data.category} == 'shami'",
-      "then": [
-       {
-        "type": "TextBody",
-        "text": "Product: ${data.product_shami}"
-       }
-      ]
-     },
-     {
-      "type": "If",
-      "condition": "${data.category} == 'labanani'",
-      "then": [
-       {
-        "type": "TextBody",
-        "text": "Product: ${data.product_labanani}"
-       }
-      ]
-     },
-     {
-      "type": "If",
-      "condition": "${data.category} == 'chapathi'",
-      "then": [
-       {
-        "type": "TextBody",
-        "text": "Product: ${data.product_chapathi}"
-       }
-      ]
-     },
-     {
-      "type": "If",
-      "condition": "${data.category} == 'felafil'",
-      "then": [
-       {
-        "type": "TextBody",
-        "text": "Product: ${data.product_felafil}"
-       }
-      ]
-     },
-     {
-      "type": "If",
-      "condition": "${data.category} == 'samooli'",
-      "then": [
-       {
-        "type": "TextBody",
-        "text": "Product: ${data.product_samooli}"
-       }
-      ]
-     },
-     {
-      "type": "TextBody",
-      "text": "Quantity: ${data.qty}"
-     },
-     {
-      "type": "TextBody",
-      "text": "Price before VAT: ${data.price}"
-     },
-     {
-      "type": "TextCaption",
-      "text": "In the real system the totals, VAT and the cart with several lines are shown here."
-     },
-     {
-      "type": "Footer",
-      "label": "Confirm (demo)",
-      "on-click-action": {
-       "name": "complete",
-       "payload": {
-        "customer": "${data.customer}",
-        "category": "${data.category}",
-        "qty": "${data.qty}",
-        "price": "${data.price}",
-        "product_shami": "${data.product_shami}",
-        "product_labanani": "${data.product_labanani}",
-        "product_chapathi": "${data.product_chapathi}",
-        "product_felafil": "${data.product_felafil}",
-        "product_samooli": "${data.product_samooli}"
-       }
-      }
-     }
-    ]
-   }
-  }
- ]
+  ]
 }

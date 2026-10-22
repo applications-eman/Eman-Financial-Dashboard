@@ -1,5 +1,6 @@
 import { createApp } from "./app.ts";
 import { signHs256 } from "./auth.ts";
+import type { Row } from "./db.ts";
 import { testDb } from "./test-db.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -29,7 +30,7 @@ async function setup() {
       headers: { authorization: `Bearer ${token(who)}`, "content-type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    return { status: r.status, json: (await r.json().catch(() => null)) as any };
+    return { status: r.status, json: (await r.json().catch(() => null)) as Row };
   };
   return { db, app, call };
 }
@@ -154,6 +155,6 @@ test("products: price limit history, bulk upload, settings, audit", async () => 
   assert.equal((await call("GET", "/admin/settings")).json.duplicate_window_minutes, 45);
   const audit = (await call("GET", "/admin/audit")).json;
   assert.ok(audit.length >= 6);
-  assert.ok(audit.every((a: any) => a.actor === "boss@example.com"));
+  assert.ok(audit.every((a: Row) => a.actor === "boss@example.com"));
   assert.equal((await call("GET", "/admin/summary")).json.products_active, 2);
 });

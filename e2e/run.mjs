@@ -1,9 +1,10 @@
 #!/usr/bin/env node
+import { chromium } from "playwright-core";
+
 // Local end-to-end run: real dashboard build + real Val Town backend code + mock Supabase (see valtown/e2e/server.ts).
 // Usage: npm run build && node e2e/run.mjs      (needs Chromium under /opt/pw-browsers or CHROMIUM_PATH)
 import { spawn } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { chromium } from "playwright-core";
 
 const ROOT = new URL("..", import.meta.url).pathname;
 const DASH = "http://localhost:3100";
@@ -24,7 +25,11 @@ function start(cmd, args, opts) {
 async function waitFor(url, ms = 90000) {
   const t0 = Date.now();
   while (Date.now() - t0 < ms) {
-    try { if ((await fetch(url)).status < 500) return; } catch { /* retry */ }
+    try {
+      if ((await fetch(url)).status < 500) return;
+    } catch {
+      /* retry */
+    }
     await sleep(300);
   }
   throw new Error(`timeout waiting for ${url}`);
@@ -41,12 +46,17 @@ async function step(name, fn) {
     console.log(`FAIL  ${name} — ${detail}`);
   }
 }
-const expect = (cond, msg) => { if (!cond) throw new Error(msg); };
+const expect = (cond, msg) => {
+  if (!cond) throw new Error(msg);
+};
 
 const chromeDir = readdirSync("/opt/pw-browsers").find((d) => /^chromium-\d+$/.test(d));
 const executablePath = process.env.CHROMIUM_PATH ?? `/opt/pw-browsers/${chromeDir}/chrome-linux/chrome`;
 
-start("node", ["--import", "./tests/register.mjs", "e2e/server.ts"], { cwd: `${ROOT}valtown`, env: { E2E_DASH_ORIGIN: DASH } });
+start("node", ["--import", "./tests/register.mjs", "e2e/server.ts"], {
+  cwd: `${ROOT}valtown`,
+  env: { E2E_DASH_ORIGIN: DASH },
+});
 start("npx", ["next", "start", "-p", "3100"], {
   cwd: ROOT,
   env: { NEXT_PUBLIC_SUPABASE_URL: SUPA, NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon-key", NEXT_PUBLIC_ADMIN_API_URL: API },
@@ -97,8 +107,17 @@ try {
   await step("REALTIME: iOS Shortcut POST appears on the dashboard (toast + feed)", async () => {
     const t0 = Date.now();
     const r = await fetch(`${API}/api/expense`, {
-      method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ section: "bakery", token: staffToken, seller_name: "شركة مخابز ايمان جدة للخبز", vat_number: "312028501300003", invoice_date: "2026-10-14T15:19:20", total_amount: 145.52, vat_amount: 18.98 }),
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        section: "bakery",
+        token: staffToken,
+        seller_name: "شركة مخابز ايمان جدة للخبز",
+        vat_number: "312028501300003",
+        invoice_date: "2026-10-14T15:19:20",
+        total_amount: 145.52,
+        vat_amount: 18.98,
+      }),
     });
     expect(r.status === 201, `shortcut status ${r.status}`);
     await page.getByText("New invoice").first().waitFor({ timeout: 10000 });
@@ -107,25 +126,37 @@ try {
     return `${Date.now() - t0} ms from POST to visible`;
   });
   await step("duplicate post is reported and not inserted twice", async () => {
-    const body = JSON.stringify({ section: "bakery", token: staffToken, vat_number: "312028501300003", invoice_date: "2026-10-14T15:19:20", total_amount: 145.52, vat_amount: 18.98 });
-    const r = await (await fetch(`${API}/api/expense`, { method: "POST", headers: { "content-type": "application/json" }, body })).json();
+    const body = JSON.stringify({
+      section: "bakery",
+      token: staffToken,
+      vat_number: "312028501300003",
+      invoice_date: "2026-10-14T15:19:20",
+      total_amount: 145.52,
+      vat_amount: 18.98,
+    });
+    const r = await (
+      await fetch(`${API}/api/expense`, { method: "POST", headers: { "content-type": "application/json" }, body })
+    ).json();
     expect(r.status === "duplicate", `status ${r.status}`);
   });
-  await step("bakery expenses table lists rows with badges; inline status edit goes through the admin API", async () => {
-    await page.goto(`${DASH}/dashboard/bakery`);
-    await page.getByRole("heading", { name: "Bakery expenses" }).waitFor();
-    await page.getByText("Flour Mill Co").first().waitFor();
-    await page.getByText(/Duplicate ×1/).waitFor();
-    await page.screenshot({ path: `${SHOTS}/expenses.png`, fullPage: true });
-    const row = page.getByRole("row").filter({ hasText: "Pack It" });
-    await row.getByRole("combobox", { name: "Status" }).click();
-    await page.getByRole("option", { name: "Reviewed" }).click();
-    await page.waitForTimeout(800);
-    await page.reload(); // proves the change was persisted server-side, not just optimistic UI
-    const again = page.getByRole("row").filter({ hasText: "Pack It" }).getByRole("combobox", { name: "Status" });
-    await again.waitFor();
-    expect((await again.innerText()).trim() === "Reviewed", "status not persisted");
-  });
+  await step(
+    "bakery expenses table lists rows with badges; inline status edit goes through the admin API",
+    async () => {
+      await page.goto(`${DASH}/dashboard/bakery`);
+      await page.getByRole("heading", { name: "Bakery expenses" }).waitFor();
+      await page.getByText("Flour Mill Co").first().waitFor();
+      await page.getByText(/Duplicate ×1/).waitFor();
+      await page.screenshot({ path: `${SHOTS}/expenses.png`, fullPage: true });
+      const row = page.getByRole("row").filter({ hasText: "Pack It" });
+      await row.getByRole("combobox", { name: "Status" }).click();
+      await page.getByRole("option", { name: "Reviewed" }).click();
+      await page.waitForTimeout(800);
+      await page.reload(); // proves the change was persisted server-side, not just optimistic UI
+      const again = page.getByRole("row").filter({ hasText: "Pack It" }).getByRole("combobox", { name: "Status" });
+      await again.waitFor();
+      expect((await again.innerText()).trim() === "Reviewed", "status not persisted");
+    },
+  );
   await step("filter by supplier narrows the table", async () => {
     await page.getByPlaceholder("Search supplier").fill("Pack");
     await page.waitForTimeout(800);
@@ -136,17 +167,29 @@ try {
   await step("users: generate Shortcut token is shown once", async () => {
     await page.goto(`${DASH}/dashboard/users`);
     await page.getByText("Ali Staff").waitFor();
-    await page.getByRole("row").filter({ hasText: "Ali Staff" }).getByRole("button", { name: /Rotate token/ }).click();
+    await page
+      .getByRole("row")
+      .filter({ hasText: "Ali Staff" })
+      .getByRole("button", { name: /Rotate token/ })
+      .click();
     await page.getByRole("button", { name: "Confirm" }).click();
     const code = page.locator("code");
     await code.waitFor();
     const token = (await code.innerText()).trim();
     expect(/^eb_/.test(token), "token format");
     await page.getByRole("button", { name: "I have copied it" }).click();
-    const ok = await fetch(`${API}/api/expense`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ section: "bakery", token, raw_qr: "AAAA" }) });
+    const ok = await fetch(`${API}/api/expense`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ section: "bakery", token, raw_qr: "AAAA" }),
+    });
     expect(ok.status === 422, "new token authenticates (422 = past auth, bad QR)");
     rotatedToken = token;
-    const old = await fetch(`${API}/api/expense`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ section: "bakery", token: staffToken, raw_qr: "AAAA" }) });
+    const old = await fetch(`${API}/api/expense`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ section: "bakery", token: staffToken, raw_qr: "AAAA" }),
+    });
     expect(old.status === 401, "old token must be dead");
     await page.screenshot({ path: `${SHOTS}/users.png`, fullPage: true });
   });
@@ -159,11 +202,19 @@ try {
     await page.getByText("Saved").first().waitFor();
     await input.fill("16");
     await page.locator("div", { has: input }).getByRole("button", { name: "Save" }).last().click();
-    await page.getByText(/vat_rate must be/).first().waitFor();
+    await page
+      .getByText(/vat_rate must be/)
+      .first()
+      .waitFor();
     await page.screenshot({ path: `${SHOTS}/settings.png`, fullPage: true });
   });
   await step("feature flags: switching ios_shortcut off blocks the endpoint, on restores it", async () => {
-    const post = () => fetch(`${API}/api/expense`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ section: "bakery", token: rotatedToken, raw_qr: "AAAA" }) });
+    const post = () =>
+      fetch(`${API}/api/expense`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ section: "bakery", token: rotatedToken, raw_qr: "AAAA" }),
+      });
     await page.goto(`${DASH}/dashboard/flags`);
     await page.locator("#flag-ios_shortcut").waitFor();
     await page.locator("#flag-ios_shortcut").click();
@@ -186,7 +237,10 @@ try {
   });
   await step("exports: CSV download via the admin API", async () => {
     await page.goto(`${DASH}/dashboard/exports`);
-    const [dl] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Download" }).click()]);
+    const [dl] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByRole("button", { name: "Download" }).click(),
+    ]);
     const path = await dl.path();
     const csv = readFileSync(path, "utf8");
     expect(csv.includes("section,id,invoice_date") && csv.includes("Flour Mill Co"), "csv content");
@@ -229,20 +283,33 @@ try {
     await ctx2.close();
   });
   await step("admin API refuses a staff JWT and cross-origin callers", async () => {
-    const login = await (await fetch(`${SUPA}/auth/v1/token?grant_type=password`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email: "staff@eman.test", password: "correct-horse-battery" }) })).json();
+    const login = await (
+      await fetch(`${SUPA}/auth/v1/token?grant_type=password`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: "staff@eman.test", password: "correct-horse-battery" }),
+      })
+    ).json();
     const r = await fetch(`${API}/admin/users`, { headers: { authorization: `Bearer ${login.access_token}` } });
     expect(r.status === 403, `staff status ${r.status}`);
     const none = await fetch(`${API}/admin/users`);
     expect(none.status === 401, "anonymous 401");
-    const pre = await fetch(`${API}/admin/users`, { method: "OPTIONS", headers: { origin: "https://evil.example", "access-control-request-method": "GET" } });
+    const pre = await fetch(`${API}/admin/users`, {
+      method: "OPTIONS",
+      headers: { origin: "https://evil.example", "access-control-request-method": "GET" },
+    });
     expect(pre.headers.get("access-control-allow-origin") !== "https://evil.example", "CORS leaked");
   });
   await step("ALERTS: type/salesman/customer drop-downs are complete on 'Today' and their search works", async () => {
     await page.goto(`${DASH}/dashboard/alerts`);
-    await page.getByText("INV/2026/0").first().waitFor({ timeout: 15000 }).catch(async (e) => {
-      console.log("PAGE TEXT:", (await page.locator("body").innerText()).slice(0, 600));
-      throw e;
-    });
+    await page
+      .getByText("INV/2026/0")
+      .first()
+      .waitFor({ timeout: 15000 })
+      .catch(async (e) => {
+        console.log("PAGE TEXT:", (await page.locator("body").innerText()).slice(0, 600));
+        throw e;
+      });
     await page.getByRole("button", { name: "Today", exact: true }).click();
     await page.waitForTimeout(800);
     // alert type drop-down lists ALL kinds although only 2 kinds exist today

@@ -2,23 +2,10 @@
   "version": "7.3",
   "data_api_version": "3.0",
   "routing_model": {
-    "SECTION": [
-      "PHOTO"
-    ],
-    "PHOTO": [
-      "CONFIRM",
-      "RETRY",
-      "FAILURE"
-    ],
-    "RETRY": [
-      "CONFIRM",
-      "FAILURE"
-    ],
-    "CONFIRM": [
-      "SUCCESS",
-      "DUPLICATE",
-      "FAILURE"
-    ],
+    "SECTION": ["PHOTO"],
+    "PHOTO": ["CONFIRM", "RETRY", "FAILURE"],
+    "RETRY": ["CONFIRM", "FAILURE"],
+    "CONFIRM": ["SUCCESS", "DUPLICATE", "FAILURE"],
     "SUCCESS": [],
     "DUPLICATE": [],
     "FAILURE": []

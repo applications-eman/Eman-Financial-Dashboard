@@ -62,10 +62,16 @@ async function audit(
   ]);
 }
 
+const errorCode = (e: unknown) => (typeof e === "object" && e !== null && "code" in e ? String(e.code) : "");
+const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const isUniqueViolation = (e: unknown) =>
-  (e as { code?: string })?.code === "23505" || /duplicate key|unique constraint/i.test(String((e as Error)?.message));
-const isFkViolation = (e: unknown) =>
-  (e as { code?: string })?.code === "23503" || /foreign key/i.test(String((e as Error)?.message));
+  errorCode(e) === "23505" || /duplicate key|unique constraint/i.test(errorText(e));
+const isFkViolation = (e: unknown) => errorCode(e) === "23503" || /foreign key/i.test(errorText(e));
+
+function customerAction(next: string | undefined, current: string) {
+  if (!next || next === current) return "update";
+  return next === "frozen" ? "freeze" : "unfreeze";
+}
 
 export function createApp(deps: AppDeps) {
   const app = new Hono<Vars>();
@@ -93,7 +99,7 @@ export function createApp(deps: AppDeps) {
         },
         400,
       );
-    console.error(JSON.stringify({ event: "error", message: String((e as Error)?.message ?? e) }));
+    console.error(JSON.stringify({ event: "error", message: errorText(e) }));
     return c.json({ error: "server_error", message: "Something went wrong. Nothing was changed." }, 500);
   });
 
@@ -233,7 +239,7 @@ export function createApp(deps: AppDeps) {
         reachable: false,
         status: 0,
         ms: Date.now() - started,
-        error: String((e as Error)?.message ?? e),
+        error: errorText(e),
       });
     }
   });
@@ -551,15 +557,7 @@ export function createApp(deps: AppDeps) {
         `update customers set name=coalesce($2,name), vat=case when $3::boolean then $4 else vat end, status=coalesce($5,status) where id=$1 returning id, name, vat, status`,
         [id, b.name ?? null, b.vat !== undefined, b.vat ?? null, b.status ?? null],
       );
-      await audit(
-        t,
-        actor,
-        b.status && b.status !== before.status ? (b.status === "frozen" ? "freeze" : "unfreeze") : "update",
-        "customer",
-        id,
-        before,
-        after,
-      );
+      await audit(t, actor, customerAction(b.status, before.status), "customer", id, before, after);
       return after;
     });
     return c.json(out);

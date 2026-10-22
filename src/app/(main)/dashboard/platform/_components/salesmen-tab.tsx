@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 
 import { Plus, Users } from "lucide-react";
 import { toast } from "sonner";
@@ -196,6 +196,29 @@ function AssignDialog({
 
   const shown = (all ?? []).filter((c) => c.name.toLowerCase().includes(q.toLowerCase()));
 
+  function toggle(id: string, on: boolean) {
+    setPicked((cur) => {
+      const next = new Set(cur);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  let listBody: ReactNode;
+  if (all === null) listBody = <p className="p-3 text-muted-foreground text-sm">Loading…</p>;
+  else if (shown.length === 0)
+    listBody = (
+      <p className="p-3 text-muted-foreground text-sm">No customers found. Add them in the Customers tab first.</p>
+    );
+  else
+    listBody = shown.map((c) => (
+      <Label key={c.id} className="flex items-center gap-2 border-b px-3 py-2 last:border-0">
+        <Checkbox checked={picked.has(c.id)} onCheckedChange={(v) => toggle(c.id, v === true)} />
+        {c.name}
+      </Label>
+    ));
+
   async function save() {
     if (!salesman) return;
     setBusy(true);
@@ -223,32 +246,7 @@ function AssignDialog({
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <div className="max-h-80 overflow-y-auto rounded-md border">
-          {all === null ? (
-            <p className="p-3 text-muted-foreground text-sm">Loading…</p>
-          ) : shown.length === 0 ? (
-            <p className="p-3 text-muted-foreground text-sm">
-              No customers found. Add them in the Customers tab first.
-            </p>
-          ) : (
-            shown.map((c) => (
-              <Label key={c.id} className="flex items-center gap-2 border-b px-3 py-2 last:border-0">
-                <Checkbox
-                  checked={picked.has(c.id)}
-                  onCheckedChange={(v) =>
-                    setPicked((cur) => {
-                      const next = new Set(cur);
-                      if (v) next.add(c.id);
-                      else next.delete(c.id);
-                      return next;
-                    })
-                  }
-                />
-                {c.name}
-              </Label>
-            ))
-          )}
-        </div>
+        <div className="max-h-80 overflow-y-auto rounded-md border">{listBody}</div>
         <DialogFooter>
           <span className="me-auto self-center text-muted-foreground text-sm">{picked.size} selected</span>
           <Button variant="outline" onClick={onClose}>
