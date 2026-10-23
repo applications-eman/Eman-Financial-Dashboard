@@ -168,7 +168,7 @@ async function processJob(d: WorkerDeps, job: Job) {
 
     if (move.state === "cancel") {
       await finish(d, job, "failed", { code: "odoo_cancelled", detail: "The invoice was cancelled in Odoo" });
-      await tell(d, job.salesman_id, msg("M18", { ref: job.ref_code }));
+      await tell(d, job.salesman_id, msg("M18", { ref: job.ref_code, reason: "the invoice was cancelled in Odoo" }));
       return;
     }
 
@@ -179,7 +179,11 @@ async function processJob(d: WorkerDeps, job: Job) {
           code: "total_mismatch",
           detail: `Odoo ${money(move.amountUntaxed)} vs confirmed ${money(Number(job.subtotal))} (draft left in Odoo)`,
         });
-        await tell(d, job.salesman_id, msg("M18", { ref: job.ref_code }));
+        await tell(
+          d,
+          job.salesman_id,
+          msg("M18", { ref: job.ref_code, reason: "Odoo calculated a different amount than the one you confirmed" }),
+        );
         return;
       }
       // the same for the VAT: a total that differs from what the salesman saw is never posted or sent to ZATCA
@@ -188,7 +192,14 @@ async function processJob(d: WorkerDeps, job: Job) {
           code: "vat_mismatch",
           detail: `Odoo total ${money(move.amountTotal)} vs confirmed ${money(Number(job.total))} (draft left in Odoo)`,
         });
-        await tell(d, job.salesman_id, msg("M18", { ref: job.ref_code }));
+        await tell(
+          d,
+          job.salesman_id,
+          msg("M18", {
+            ref: job.ref_code,
+            reason: "the VAT calculated in Odoo does not match the total you confirmed",
+          }),
+        );
         return;
       }
       await d.odoo.post(move.id);
@@ -277,6 +288,15 @@ export async function deliverPdf(
   if (!sent) await d.wa.sendText(s.phone, `${caption}\n${msg("M26")}`);
 }
 
+/** One short line of Odoo's own words for the salesman: no stack traces, no line breaks, at most 200 characters. */
+export function plainReason(text: string): string {
+  const one = text
+    .replace(/\s+/g, " ")
+    .replace(/[.\s]+$/, "")
+    .trim();
+  return one.length > 200 ? `${one.slice(0, 199)}…` : one || "unknown error";
+}
+
 async function handleError(d: WorkerDeps, job: Job, ref: string, e: unknown, maxAttempts: number) {
   const err = e instanceof OdooError ? e : new OdooError(e instanceof Error ? e.message : String(e), 0, false);
   if (err.transient && job.attempts < maxAttempts) {
@@ -303,5 +323,5 @@ async function handleError(d: WorkerDeps, job: Job, ref: string, e: unknown, max
   if (!known) await tell(d, job.salesman_id, msg("M16"));
   else if (existing && existing.state === "posted")
     await tell(d, job.salesman_id, msg("M27", { number: String(existing.name || job.ref_code) }));
-  else await tell(d, job.salesman_id, msg("M18", { ref: job.ref_code }));
+  else await tell(d, job.salesman_id, msg("M18", { ref: job.ref_code, reason: plainReason(err.message) }));
 }

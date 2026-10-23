@@ -107,15 +107,14 @@ async function acknowledge(d: WebhookDeps, salesmanId: string, phone: string, re
       }),
     ));
   }
+  // the worker may already have finished and sent the real result: then there is nothing true left to acknowledge
+  if (r.status !== "queued" && r.status !== "processing") return;
   const [{ n }] = await d.db.query<{ n: number }>(
-    `select count(*)::int as n from invoice_requests where status in ('queued','processing') and created_at <= $1`,
+    `select count(*)::int as n from invoice_requests where status in ('queued','processing') and created_at < $1`,
     [r.created_at],
   );
-  const position = Math.max(1, r.status === "queued" || r.status === "processing" ? n : 1);
-  await d.wa.sendText(
-    phone,
-    `${msg("M11", { n: position, minutes: Math.max(1, Math.ceil((position * 10) / 60)) })} Reference: ${r.ref_code}`,
-  );
+  const ahead = n > 0 ? ` There ${n === 1 ? "is 1 invoice" : `are ${n} invoices`} ahead of yours.` : "";
+  await d.wa.sendText(phone, `${msg("M11")}${ahead} Reference: ${r.ref_code}`);
 }
 
 async function resendPdf(d: WebhookDeps, salesmanId: string, phone: string, ref: string) {

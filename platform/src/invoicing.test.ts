@@ -377,6 +377,7 @@ test("worker: ZATCA rejects, pending, wrong amount, bad key", async () => {
   await drain(w.worker);
   const [c3b] = await w.db.query(`select status, error_code from invoice_requests where id=$1`, [r3b.id]);
   assert.deepEqual([c3b.status, c3b.error_code], ["failed", "vat_mismatch"]);
+  assert.match(lastSent(w.wa).text, /Reason: the VAT calculated in Odoo does not match/);
   assert.equal(w.odoo.calls.filter((c) => c === "post").length, postsBefore2);
   w.odoo.vat = 0.15;
 
