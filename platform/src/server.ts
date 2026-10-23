@@ -78,8 +78,10 @@ if (missing.length > 0) {
 } else {
   try {
     invoicing = buildInvoicing();
-    invoicingStatus = "on";
-    log("invoicing_enabled");
+    invoicingStatus = process.env.ODOO_SALES_JOURNAL_ID
+      ? `on (journal ${process.env.ODOO_SALES_JOURNAL_ID})`
+      : "on, but invoices wait: ODOO_SALES_JOURNAL_ID is not set";
+    log("invoicing_enabled", { journal: process.env.ODOO_SALES_JOURNAL_ID ?? null });
   } catch (e) {
     const reason = e instanceof Error ? e.message : String(e);
     log("invoicing_failed_to_start", { error: reason });
