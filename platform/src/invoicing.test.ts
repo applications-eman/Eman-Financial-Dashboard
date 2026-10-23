@@ -370,6 +370,16 @@ test("worker: ZATCA rejects, pending, wrong amount, bad key", async () => {
   assert.match(lastSent(w.wa).text, /was not issued/);
   w.odoo.skew = 0;
 
+  // Odoo left the VAT off the lines: the total differs from what the salesman saw, so nothing is posted
+  w.odoo.vat = 0;
+  const r3b = await queued(w, "1", "4.00", "tok3b");
+  const postsBefore2 = w.odoo.calls.filter((c) => c === "post").length;
+  await drain(w.worker);
+  const [c3b] = await w.db.query(`select status, error_code from invoice_requests where id=$1`, [r3b.id]);
+  assert.deepEqual([c3b.status, c3b.error_code], ["failed", "vat_mismatch"]);
+  assert.equal(w.odoo.calls.filter((c) => c === "post").length, postsBefore2);
+  w.odoo.vat = 0.15;
+
   // wrong key: fails at once, honest message
   w.odoo.failNext.create = new OdooError("Invalid apikey", 401, false);
   const r4 = await queued(w, "1", "3.00", "tok4");

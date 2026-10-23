@@ -22,7 +22,7 @@ function scripted(replies: (unknown | Error | { status: number; body: unknown })
 }
 
 test("requests follow the JSON-2 contract", async () => {
-  const { calls, odoo } = scripted([[501]]);
+  const { calls, odoo } = scripted([[{ id: 70, name: "SHAMI", taxes_id: [5] }], [501]]);
   const id = await odoo.createDraftInvoice({
     partnerId: 7,
     ref: "WA-ABC",
@@ -33,15 +33,27 @@ test("requests follow the JSON-2 contract", async () => {
     lines: [{ productId: 70, name: "SHAMI", quantity: 2, priceUnit: 4.5 }],
   });
   assert.equal(id, 501);
-  assert.equal(calls[0].url, "https://eman.odoo.com/json/2/account.move/create");
+  assert.equal(calls[0].url, "https://eman.odoo.com/json/2/product.product/read");
+  assert.equal(calls[1].url, "https://eman.odoo.com/json/2/account.move/create");
   assert.equal(calls[0].headers.Authorization, "bearer KEY");
   assert.equal(calls[0].headers["X-Odoo-Database"], "eman");
-  const vals = (calls[0].body.vals_list as Record<string, unknown>[])[0];
+  const vals = (calls[1].body.vals_list as Record<string, unknown>[])[0];
   assert.equal(vals.move_type, "out_invoice");
   assert.equal(vals.ref, "WA-ABC");
   assert.equal(vals.journal_id, 31);
   assert.deepEqual(vals.invoice_line_ids, [
-    [0, 0, { product_id: 70, name: "SHAMI", quantity: 2, price_unit: 4.5, analytic_distribution: { "3": 100 } }],
+    [
+      0,
+      0,
+      {
+        product_id: 70,
+        name: "SHAMI",
+        quantity: 2,
+        price_unit: 4.5,
+        tax_ids: [[6, 0, [5]]],
+        analytic_distribution: { "3": 100 },
+      },
+    ],
   ]);
 });
 

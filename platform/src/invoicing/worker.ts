@@ -182,6 +182,15 @@ async function processJob(d: WorkerDeps, job: Job) {
         await tell(d, job.salesman_id, msg("M18", { ref: job.ref_code }));
         return;
       }
+      // the same for the VAT: a total that differs from what the salesman saw is never posted or sent to ZATCA
+      if (Math.abs(move.amountTotal - Number(job.total)) > 0.01) {
+        await finish(d, job, "failed", {
+          code: "vat_mismatch",
+          detail: `Odoo total ${money(move.amountTotal)} vs confirmed ${money(Number(job.total))} (draft left in Odoo)`,
+        });
+        await tell(d, job.salesman_id, msg("M18", { ref: job.ref_code }));
+        return;
+      }
       await d.odoo.post(move.id);
       await event(d.db, job.id, "odoo_posted");
       move = await d.odoo.getMove(move.id);
