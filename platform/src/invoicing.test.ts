@@ -840,3 +840,17 @@ test("flow: choosing a product leaves only that product in the list; after addin
     [w.product],
   );
 });
+
+test("worker: when WhatsApp refuses the PDF the salesman is told why and gets a button to ask again", async () => {
+  const w = await world();
+  const r = await queued(w);
+  w.wa.ok = false;
+  await drain(w.worker);
+  w.wa.ok = true;
+  const [row] = await w.db.query(`select status from invoice_requests where id=$1`, [r.id]);
+  assert.equal(row.status, "cleared"); // ZATCA cleared it, only the delivery failed
+  const note = w.wa.sent.filter((m) => m.kind === "buttons").at(-1);
+  assert.ok(note);
+  assert.match(note.text, /could not be sent to you \(WhatsApp did not accept the file\)/);
+  assert.deepEqual((note.extra as { id: string }[])[0].id, `pdf:${r.ref_code}`);
+});

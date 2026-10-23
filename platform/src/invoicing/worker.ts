@@ -286,17 +286,34 @@ export async function deliverPdf(
     [refCode],
   );
   if (!s || !r) return;
-  const pdfId = await d.odoo.renderFreshPdf(move.id).catch(() => move.pdfAttachmentId);
-  const pdf = pdfId ? await d.odoo.pdf(pdfId).catch(() => null) : null;
   const caption = msg("M13", { number: String(move.name), customer: r.customer, total: money(Number(r.total)) });
-  const sent = pdf
-    ? await d.wa.sendDocument(s.phone, {
-        filename: `${String(move.name).replaceAll("/", "-")}.pdf`,
-        base64: pdf.base64,
-        caption,
-      })
-    : false;
-  if (!sent) await d.wa.sendText(s.phone, `${caption}\n${msg("M26")}`);
+  // every step says why it failed, so a missing PDF is never a mystery
+  const fail = async (why: string, detail?: unknown) => {
+    console.error(JSON.stringify({ severity: "ERROR", message: "pdf_not_delivered", ref: refCode, why, detail }));
+    await d.wa.sendButtons(s.phone, msg("M26", { number: String(move.name), why, ref: refCode }), [
+      { id: `pdf:${refCode}`, title: "Send PDF again" },
+    ]);
+  };
+  let pdfId: number | null = null;
+  try {
+    pdfId = await d.odoo.renderFreshPdf(move.id);
+  } catch (e) {
+    // the PDF Odoo already holds is better than none
+    pdfId = move.pdfAttachmentId;
+    if (!pdfId) return fail("Odoo could not prepare it", e instanceof Error ? e.message : String(e));
+  }
+  if (!pdfId) return fail("Odoo has not produced it yet");
+  const pdf = await d.odoo.pdf(pdfId).catch((e: unknown) => {
+    console.error(JSON.stringify({ severity: "ERROR", message: "pdf_read_failed", error: String(e) }));
+    return null;
+  });
+  if (!pdf) return fail("the file could not be read from Odoo");
+  const sent = await d.wa.sendDocument(s.phone, {
+    filename: `${String(move.name).replaceAll("/", "-")}.pdf`,
+    base64: pdf.base64,
+    caption,
+  });
+  if (!sent) await fail("WhatsApp did not accept the file");
 }
 
 /** One short line of Odoo's own words for the salesman: no stack traces, no line breaks, at most 200 characters. */

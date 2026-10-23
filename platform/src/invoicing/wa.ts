@@ -116,7 +116,17 @@ export class CloudWa implements WaPort {
         form.set("file", new Blob([Buffer.from(d.base64, "base64")], { type: "application/pdf" }), d.filename);
         return { method: "POST", headers: { Authorization: `Bearer ${this.cfg.token}` }, body: form };
       });
-      if (!r.ok) return false;
+      if (!r.ok) {
+        console.error(
+          JSON.stringify({
+            severity: "ERROR",
+            message: "wa_media_upload_failed",
+            status: r.status,
+            body: (await r.text()).slice(0, 300),
+          }),
+        );
+        return false;
+      }
       const { id } = (await r.json()) as { id?: string };
       if (!id) return false;
       return this.post({

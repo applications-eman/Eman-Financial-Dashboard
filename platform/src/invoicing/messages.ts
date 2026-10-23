@@ -22,7 +22,7 @@ const M = {
   M22: "This form has expired. Please start again by tapping the button below.",
   M23: "You have reached today's invoice limit. Please contact your supervisor.",
   M24: "Please use the invoice button. Messages cannot be used to create invoices.",
-  M26: "Your invoice is created and cleared, but the PDF is delayed. It will arrive here shortly.",
+  M26: "Invoice {number} is created and cleared by ZATCA, but the PDF could not be sent to you ({why}). Tap the button to get it again, or contact the accounts team with reference {ref}.",
   M27: "Invoice {number} is created. Waiting for ZATCA clearance. Do not create it again.",
   M28: "You can add up to {max} products in one invoice. Please create a second invoice for the rest.",
   M29: "Your supervisor did not approve this invoice. Please contact your supervisor.",
