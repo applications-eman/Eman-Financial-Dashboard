@@ -4,6 +4,8 @@ export interface WaPort {
   sendFlow(to: string, p: { body: string; token: string; cta?: string }): Promise<boolean>;
   sendButtons(to: string, body: string, buttons: { id: string; title: string }[]): Promise<boolean>;
   sendDocument(to: string, d: { filename: string; base64: string; caption: string }): Promise<boolean>;
+  /** WhatsApp's own words for the last send that was refused (so a person can see why) */
+  lastFailure?(): string;
 }
 
 export interface CloudWaCfg {
@@ -20,6 +22,10 @@ export interface CloudWaCfg {
 const digits = (s: string) => s.replace(/\D/g, "");
 
 export class CloudWa implements WaPort {
+  private failure = "";
+  lastFailure() {
+    return this.failure;
+  }
   private cfg: CloudWaCfg;
   constructor(cfg: CloudWaCfg) {
     this.cfg = cfg;
@@ -54,13 +60,15 @@ export class CloudWa implements WaPort {
         headers: { Authorization: `Bearer ${this.cfg.token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ messaging_product: "whatsapp", ...body }),
       }));
-      if (!r.ok)
-        console.warn(
-          JSON.stringify({ event: "wa_send_rejected", status: r.status, detail: (await r.text()).slice(0, 300) }),
-        );
+      if (!r.ok) {
+        const detail = (await r.text()).slice(0, 300);
+        this.failure = `HTTP ${r.status} ${detail}`;
+        console.warn(JSON.stringify({ event: "wa_send_rejected", status: r.status, detail }));
+      }
       return r.ok;
     } catch (e) {
-      console.error(JSON.stringify({ event: "wa_send_failed", error: e instanceof Error ? e.message : String(e) }));
+      this.failure = e instanceof Error ? e.message : String(e);
+      console.error(JSON.stringify({ event: "wa_send_failed", error: this.failure }));
       return false;
     }
   }
@@ -135,7 +143,8 @@ export class CloudWa implements WaPort {
         document: { id, filename: d.filename, caption: d.caption },
       });
     } catch (e) {
-      console.error(JSON.stringify({ event: "wa_document_failed", error: e instanceof Error ? e.message : String(e) }));
+      this.failure = e instanceof Error ? e.message : String(e);
+      console.error(JSON.stringify({ event: "wa_document_failed", error: this.failure }));
       return false;
     }
   }
@@ -165,5 +174,8 @@ export class TestModeWa implements WaPort {
   }
   async sendDocument(to: string, d: { filename: string; base64: string; caption: string }) {
     return this.inner.sendDocument(to, { ...d, caption: await this.tag(d.caption) });
+  }
+  lastFailure() {
+    return this.inner.lastFailure?.() ?? "";
   }
 }

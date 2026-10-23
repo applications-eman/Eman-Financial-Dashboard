@@ -320,7 +320,10 @@ export async function deliverPdf(
     base64: pdf.base64,
     caption,
   });
-  if (!sent) await fail("WhatsApp did not accept the file");
+  if (!sent) {
+    const why = d.wa.lastFailure?.() ?? "";
+    await fail("WhatsApp did not accept the file", why === "" ? undefined : why);
+  }
 }
 
 /** One short line of Odoo's own words for the salesman: no stack traces, no line breaks, at most 200 characters. */
