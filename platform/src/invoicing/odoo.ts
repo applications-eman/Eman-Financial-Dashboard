@@ -53,6 +53,16 @@ export interface OdooPort {
   ping(): Promise<string>;
 }
 
+/**
+ * Odoo 20 returns a file field as { filename, content (base64 text), size }; older versions return the base64 text itself.
+ * Returns the base64 text, or null when there is no file.
+ */
+export function binaryContent(v: unknown): string | null {
+  if (typeof v === "string") return v === "" ? null : v;
+  if (v && typeof v === "object" && "content" in v && typeof v.content === "string") return v.content || null;
+  return null;
+}
+
 export class OdooError extends Error {
   status: number;
   /** true when retrying later can help (network, 5xx, timeout) */
@@ -352,23 +362,25 @@ export class Json2Odoo implements OdooPort {
 
   async pdf(attachmentId: number, moveId?: number): Promise<{ filename: string; base64: string } | null> {
     if (moveId) {
-      const [m] = await this.call<{ invoice_pdf_report_id: unknown; invoice_pdf_report_file: string | false }[]>(
+      const [m] = await this.call<{ invoice_pdf_report_id: unknown; invoice_pdf_report_file: unknown }[]>(
         "account.move",
         "read",
         { ids: [moveId], fields: ["invoice_pdf_report_id", "invoice_pdf_report_file"] },
       );
-      if (m?.invoice_pdf_report_file) {
-        const name = Array.isArray(m.invoice_pdf_report_id)
+      const content = binaryContent(m?.invoice_pdf_report_file);
+      if (content) {
+        const name = Array.isArray(m?.invoice_pdf_report_id)
           ? String(m.invoice_pdf_report_id[1])
           : `invoice-${moveId}.pdf`;
-        return { filename: name, base64: m.invoice_pdf_report_file };
+        return { filename: name, base64: content };
       }
     }
-    const [a] = await this.call<{ name: string; datas: string | false }[]>("ir.attachment", "read", {
+    const [a] = await this.call<{ name: string; datas: unknown }[]>("ir.attachment", "read", {
       ids: [attachmentId],
       fields: ["name", "datas"],
     });
-    return a?.datas ? { filename: a.name, base64: a.datas } : null;
+    const content = binaryContent(a?.datas);
+    return content ? { filename: a.name, base64: content } : null;
   }
 
   async findPartner(i: { vat?: string | null; name: string }): Promise<number | null> {
