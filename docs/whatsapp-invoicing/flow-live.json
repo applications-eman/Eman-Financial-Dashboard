@@ -41,7 +41,11 @@
         "children": [
           {
             "type": "TextHeading",
-            "text": "Choose the customer"
+            "text": "Create invoice"
+          },
+          {
+            "type": "TextSubheading",
+            "text": "Step 1 of 3 • Select customer"
           },
           {
             "type": "RadioButtonsGroup",
@@ -51,8 +55,12 @@
             "data-source": "${data.customers}"
           },
           {
+            "type": "TextCaption",
+            "text": "Choose from your assigned customers"
+          },
+          {
             "type": "Footer",
-            "label": "Continue",
+            "label": "Next",
             "on-click-action": {
               "name": "data_exchange",
               "payload": {
@@ -128,6 +136,10 @@
       "layout": {
         "type": "SingleColumnLayout",
         "children": [
+          {
+            "type": "TextSubheading",
+            "text": "Step 2 of 3 • Add products"
+          },
           {
             "type": "EmbeddedLink",
             "text": "Open cart / edit ›",
@@ -228,6 +240,10 @@
         "type": "SingleColumnLayout",
         "children": [
           {
+            "type": "TextSubheading",
+            "text": "Step 3 of 3 • Review and send"
+          },
+          {
             "type": "TextBody",
             "text": "${data.review_text}"
           },
@@ -242,8 +258,12 @@
             }
           },
           {
+            "type": "TextCaption",
+            "text": "The invoice goes to ZATCA and the PDF arrives in this chat"
+          },
+          {
             "type": "Footer",
-            "label": "Create invoice",
+            "label": "Send invoice",
             "on-click-action": {
               "name": "data_exchange",
               "payload": {

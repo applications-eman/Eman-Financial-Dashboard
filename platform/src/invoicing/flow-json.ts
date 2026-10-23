@@ -2,6 +2,8 @@
 // The Flow definition uploaded to Meta (Flow JSON 6.0, data endpoint 3.0). Generated, so tests can check it.
 const heading = (text: string) => ({ type: "TextHeading", text });
 const body = (text: string) => ({ type: "TextBody", text });
+const subheading = (text: string) => ({ type: "TextSubheading", text });
+const caption = (text: string) => ({ type: "TextCaption", text });
 const dataExchange = (payload: Record<string, string>) => ({ name: "data_exchange", payload });
 
 const optionArray = (example: unknown[]) => ({
@@ -28,7 +30,8 @@ export function buildFlowJson() {
         layout: {
           type: "SingleColumnLayout",
           children: [
-            heading("Choose the customer"),
+            heading("Create invoice"),
+            subheading("Step 1 of 3 • Select customer"),
             {
               type: "RadioButtonsGroup",
               label: "Customer",
@@ -36,9 +39,10 @@ export function buildFlowJson() {
               required: true,
               "data-source": "${data.customers}",
             },
+            caption("Choose from your assigned customers"),
             {
               type: "Footer",
-              label: "Continue",
+              label: "Next",
               "on-click-action": dataExchange({ step: "select_customer", customer: "${form.customer}" }),
             },
           ],
@@ -57,6 +61,7 @@ export function buildFlowJson() {
         layout: {
           type: "SingleColumnLayout",
           children: [
+            subheading("Step 2 of 3 • Add products"),
             {
               type: "EmbeddedLink",
               text: "Open cart / edit ›",
@@ -113,13 +118,15 @@ export function buildFlowJson() {
         layout: {
           type: "SingleColumnLayout",
           children: [
+            subheading("Step 3 of 3 • Review and send"),
             body("${data.review_text}"),
             {
               type: "EmbeddedLink",
               text: "Remove last product",
               "on-click-action": dataExchange({ step: "remove_last" }),
             },
-            { type: "Footer", label: "Create invoice", "on-click-action": dataExchange({ step: "confirm" }) },
+            caption("The invoice goes to ZATCA and the PDF arrives in this chat"),
+            { type: "Footer", label: "Send invoice", "on-click-action": dataExchange({ step: "confirm" }) },
           ],
         },
       },
