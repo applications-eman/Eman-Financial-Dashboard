@@ -46,7 +46,8 @@ export interface OdooPort {
   renderFreshPdf(moveId: number): Promise<number | null>;
   registerPayment(moveId: number, journalId: number, date: string): Promise<void>;
   getMove(moveId: number): Promise<OdooMove>;
-  pdf(attachmentId: number): Promise<{ filename: string; base64: string } | null>;
+  /** the invoice PDF; when the move id is given it is read from the invoice itself (the attachment alone is not readable by every user) */
+  pdf(attachmentId: number, moveId?: number): Promise<{ filename: string; base64: string } | null>;
   findPartner(i: { vat?: string | null; name: string }): Promise<number | null>;
   findProduct(name: string): Promise<number | null>;
   ping(): Promise<string>;
@@ -349,7 +350,20 @@ export class Json2Odoo implements OdooPort {
     await this.call("account.payment.register", "action_create_payments", { ids: [wizardId], context });
   }
 
-  async pdf(attachmentId: number): Promise<{ filename: string; base64: string } | null> {
+  async pdf(attachmentId: number, moveId?: number): Promise<{ filename: string; base64: string } | null> {
+    if (moveId) {
+      const [m] = await this.call<{ invoice_pdf_report_id: unknown; invoice_pdf_report_file: string | false }[]>(
+        "account.move",
+        "read",
+        { ids: [moveId], fields: ["invoice_pdf_report_id", "invoice_pdf_report_file"] },
+      );
+      if (m?.invoice_pdf_report_file) {
+        const name = Array.isArray(m.invoice_pdf_report_id)
+          ? String(m.invoice_pdf_report_id[1])
+          : `invoice-${moveId}.pdf`;
+        return { filename: name, base64: m.invoice_pdf_report_file };
+      }
+    }
     const [a] = await this.call<{ name: string; datas: string | false }[]>("ir.attachment", "read", {
       ids: [attachmentId],
       fields: ["name", "datas"],

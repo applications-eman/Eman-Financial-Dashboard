@@ -159,6 +159,11 @@ test("cash payment, partner and product lookup, PDF", async () => {
     ["move_type", "=", "out_invoice"],
   ]);
   assert.equal((await scripted([[{ name: "a.pdf", datas: "QUJD" }]]).odoo.pdf(88))?.base64, "QUJD");
+  // read from the invoice itself when its id is known
+  const viaMove = await scripted([
+    [{ invoice_pdf_report_id: [88, "x.pdf"], invoice_pdf_report_file: "QUJD" }],
+  ]).odoo.pdf(88, 8);
+  assert.deepEqual(viaMove, { filename: "x.pdf", base64: "QUJD" });
 });
 
 test("PDF: a PDF older than the accepted ZATCA file is deleted and Odoo makes a new one", async () => {

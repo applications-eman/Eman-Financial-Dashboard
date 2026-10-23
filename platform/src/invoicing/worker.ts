@@ -290,9 +290,15 @@ export async function deliverPdf(
   // every step says why it failed, so a missing PDF is never a mystery
   const fail = async (why: string, detail?: unknown) => {
     console.error(JSON.stringify({ severity: "ERROR", message: "pdf_not_delivered", ref: refCode, why, detail }));
-    await d.wa.sendButtons(s.phone, msg("M26", { number: String(move.name), why, ref: refCode }), [
-      { id: `pdf:${refCode}`, title: "Send PDF again" },
-    ]);
+    await d.wa.sendButtons(
+      s.phone,
+      msg("M26", {
+        number: String(move.name),
+        why: detail ? `${why}: ${plainReason(String(detail)).slice(0, 120)}` : why,
+        ref: refCode,
+      }),
+      [{ id: `pdf:${refCode}`, title: "Send PDF again" }],
+    );
   };
   let pdfId: number | null = null;
   try {
@@ -303,11 +309,12 @@ export async function deliverPdf(
     if (!pdfId) return fail("Odoo could not prepare it", e instanceof Error ? e.message : String(e));
   }
   if (!pdfId) return fail("Odoo has not produced it yet");
-  const pdf = await d.odoo.pdf(pdfId).catch((e: unknown) => {
-    console.error(JSON.stringify({ severity: "ERROR", message: "pdf_read_failed", error: String(e) }));
+  let readError = "";
+  const pdf = await d.odoo.pdf(pdfId, move.id).catch((e: unknown) => {
+    readError = e instanceof Error ? e.message : String(e);
     return null;
   });
-  if (!pdf) return fail("the file could not be read from Odoo");
+  if (!pdf) return fail("the file could not be read from Odoo", readError || "the file was empty");
   const sent = await d.wa.sendDocument(s.phone, {
     filename: `${String(move.name).replaceAll("/", "-")}.pdf`,
     base64: pdf.base64,
