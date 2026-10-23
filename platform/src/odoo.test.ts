@@ -30,7 +30,7 @@ test("requests follow the JSON-2 contract", async () => {
     date: "2026-10-22",
     analyticId: 3,
     journalId: 31,
-    lines: [{ productId: 70, name: "SHAMI", quantity: 2, priceUnit: 4.5 }],
+    lines: [{ productId: "70" as unknown as number, name: "SHAMI", quantity: 2, priceUnit: 4.5 }], // ids can come from the database as text
   });
   assert.equal(id, 501);
   assert.equal(calls[0].url, "https://eman.odoo.com/json/2/product.product/read");

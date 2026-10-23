@@ -177,7 +177,8 @@ export class Json2Odoo implements OdooPort {
 
   async createDraftInvoice(i: Parameters<OdooPort["createDraftInvoice"]>[0]): Promise<number> {
     // Odoo does not fill in the product's VAT when an invoice is created through the API, so it is set on each line here
-    const productIds = [...new Set(i.lines.map((l) => l.productId))];
+    // ids can arrive as text from the database, so they are made numbers before they are compared
+    const productIds = [...new Set(i.lines.map((l) => Number(l.productId)))];
     const products = await this.call<{ id: number; name: string; taxes_id: number[] }[]>("product.product", "read", {
       ids: productIds,
       fields: ["name", "taxes_id"],
@@ -206,11 +207,11 @@ export class Json2Odoo implements OdooPort {
             0,
             0,
             {
-              product_id: l.productId,
+              product_id: Number(l.productId),
               name: l.name,
               quantity: l.quantity,
               price_unit: l.priceUnit,
-              tax_ids: [[6, 0, taxOf.get(l.productId)?.taxes_id ?? []]],
+              tax_ids: [[6, 0, taxOf.get(Number(l.productId))?.taxes_id ?? []]],
               ...(i.analyticId ? { analytic_distribution: { [String(i.analyticId)]: 100 } } : {}),
             },
           ]),
