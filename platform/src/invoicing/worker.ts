@@ -114,6 +114,17 @@ async function finish(
     [job.id, status, f.number ?? null, f.zatca ?? null, f.uuid ?? null, f.code ?? null, f.detail ?? null],
   );
   await event(d.db, job.id, status, f);
+  if (status !== "cleared")
+    console.error(
+      JSON.stringify({
+        severity: "ERROR",
+        message: "invoice_not_issued",
+        ref: job.ref_code,
+        status,
+        code: f.code,
+        detail: f.detail,
+      }),
+    );
 }
 
 /** keep the request in "processing" and look at it again after `seconds` */
