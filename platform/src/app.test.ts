@@ -252,3 +252,25 @@ test("product pictures: only small JPEG/PNG, shown in the list, removable, audit
     ["set_image", "set_image", "remove_image"],
   );
 });
+
+test("sample data: only in test mode, adds TEST customers and products once, gives them to active salesmen", async () => {
+  const { call, db } = await setup();
+  await db
+    .query(`insert into wa_numbers (phone) values ('966500000099') on conflict do nothing`)
+    .catch(() => undefined);
+  const first = await call("POST", "/admin/sample-data");
+  assert.equal(first.status, 200);
+  assert.deepEqual(first.json, { customers: 7, products: 20 });
+  const again = await call("POST", "/admin/sample-data");
+  assert.deepEqual(again.json, { customers: 0, products: 0 });
+  const [{ n: cats }] = await db.query(`select count(*)::int n from product_categories where name like 'TEST %'`);
+  assert.equal(cats, 4);
+  // never when real invoicing is on
+  await db.query(
+    `insert into platform_settings (key, value) values ('test_mode','false') on conflict (key) do update set value = excluded.value`,
+  );
+  assert.equal((await call("POST", "/admin/sample-data")).status, 409);
+  // a supervisor cannot add data
+  await db.query(`update platform_settings set value='true' where key='test_mode'`);
+  assert.equal((await call("POST", "/admin/sample-data", undefined, "sup@example.com")).status, 403);
+});

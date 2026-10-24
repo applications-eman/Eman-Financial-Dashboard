@@ -4,10 +4,12 @@ import { z } from "zod";
 
 import { type Actor, type AuthCfg, actorFor, canDecideApprovals, canWrite, verifyToken } from "./auth.ts";
 import type { Db } from "./db.ts";
+import { setting } from "./invoicing/intake.ts";
 import { msg } from "./invoicing/messages.ts";
 import { queueHealth } from "./invoicing/ops.ts";
 import { type InvoicingDeps, mountInvoicing } from "./invoicing/routes.ts";
 import { makeLimiter } from "./ratelimit.ts";
+import { SAMPLE_CATEGORIES, SAMPLE_CUSTOMERS } from "./sample-data.ts";
 import { isSafeTargetUrl } from "./ssrf.ts";
 import { randomBytes } from "node:crypto";
 
@@ -1030,6 +1032,50 @@ export function createApp(deps: AppDeps) {
       }),
     );
     return c.json(result);
+  });
+
+  // Test mode only: adds the TEST customers, categories and products (idempotent) and gives every active salesman the customers.
+  app.post("/admin/sample-data", async (c) => {
+    const actor = c.get("actor");
+    if ((await setting(db, "test_mode", true)) !== true)
+      throw new HttpError(409, "not_in_test_mode", "Sample data can only be added while Test mode is on.");
+    const out = await db.tx(async (t) => {
+      let customers = 0;
+      let products = 0;
+      for (const name of SAMPLE_CUSTOMERS) {
+        const [have] = await t.query(`select id from customers where lower(name)=lower($1)`, [name]);
+        if (!have) {
+          await t.query(`insert into customers (name) values ($1)`, [name]);
+          customers++;
+        }
+      }
+      await t.query(
+        `insert into salesman_customers (salesman_id, customer_id, source)
+           select s.id, c.id, 'admin' from salesmen s cross join customers c
+            where s.status = 'active' and c.name like 'TEST Customer %' and c.status = 'active'
+         on conflict do nothing`,
+      );
+      for (const [i, cat] of SAMPLE_CATEGORIES.entries()) {
+        const [made] = await t.query<{ id: string }>(
+          `insert into product_categories (name, sort_order) values ($1,$2) on conflict (name) do update set active = true returning id`,
+          [cat.name, 100 + i],
+        );
+        for (const [name, max] of cat.products) {
+          const [have] = await t.query(`select id from products where lower(name)=lower($1)`, [name]);
+          if (!have) {
+            await t.query(`insert into products (name, category_id, max_price) values ($1,$2,$3)`, [
+              name,
+              made.id,
+              max,
+            ]);
+            products++;
+          }
+        }
+      }
+      await audit(t, actor, "sample_data", "setting", null, null, { customers, products });
+      return { customers, products };
+    });
+    return c.json(out);
   });
 
   app.get("/admin/requests", async (c) => {

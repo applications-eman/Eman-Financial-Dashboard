@@ -11,6 +11,7 @@ import { platform } from "@/lib/platform-api";
 
 import { HealthCard } from "./health-card";
 import { OdooCard } from "./odoo-card";
+import { SampleDataCard } from "./sample-data-card";
 import { change } from "./use-platform";
 
 const NUMBER_FIELDS: { key: string; label: string; hint: string }[] = [
@@ -54,6 +55,7 @@ export function SettingsTab() {
   return (
     <div className="flex max-w-xl flex-col gap-5">
       <HealthCard />
+      <SampleDataCard />
       <OdooCard />
       <div className="flex items-start justify-between gap-4 rounded-lg border border-amber-500/50 p-3">
         <div className="space-y-1">
