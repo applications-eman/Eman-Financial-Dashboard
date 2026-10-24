@@ -2,25 +2,33 @@
 // The Flow definition uploaded to Meta (Flow JSON 6.0, data endpoint 3.0). Generated, so tests can check it.
 import { existsSync, readFileSync } from "node:fs";
 
-/** The company logo, if docs/whatsapp-invoicing/logo.png (or .jpg) exists: shown at the top of the first screen (about 300 KB at most). */
-export function loadLogo(): string | null {
-  for (const name of ["logo.png", "logo.jpg", "logo.jpeg"]) {
-    const url = new URL(`../../../docs/whatsapp-invoicing/${name}`, import.meta.url);
-    if (existsSync(url)) return readFileSync(url).toString("base64");
-  }
-  return null;
+export interface Banners {
+  /** base64 JPEG, 3:1, first screen */
+  tall: string;
+  /** base64 JPEG, 5:1, other screens */
+  slim: string;
 }
 
-/** The logo as a banner (the picture is 420 x 297, so the height follows the width). Nothing is added when there is no logo file. */
-const banner = (logo: string | null, width: number) =>
-  logo
+/** The branded banners (docs/whatsapp-invoicing/banner.jpg and banner-slim.jpg, made by scripts/make-banner.py). None without the files. */
+export function loadBanners(): Banners | null {
+  const read = (name: string) => {
+    const url = new URL(`../../../docs/whatsapp-invoicing/${name}`, import.meta.url);
+    return existsSync(url) ? readFileSync(url).toString("base64") : null;
+  };
+  const tall = read("banner.jpg");
+  const slim = read("banner-slim.jpg");
+  return tall && slim ? { tall, slim } : null;
+}
+
+/** A full-width banner: no fixed width, so it spans the screen; the height follows the aspect ratio (width / height of the picture). */
+const banner = (src: string | null, aspectRatio: number) =>
+  src
     ? [
         {
           type: "Image",
-          src: logo,
-          width,
-          height: Math.round((width * 297) / 420),
-          "scale-type": "contain",
+          src,
+          "scale-type": "cover",
+          "aspect-ratio": aspectRatio,
           "alt-text": "Eman Bakery, taste of tradition since 2007",
         },
       ]
@@ -49,7 +57,7 @@ const optionArray = (example: unknown[]) => ({
 const str = (example: string) => ({ type: "string", __example__: example });
 const bool = (example: boolean) => ({ type: "boolean", __example__: example });
 
-export function buildFlowJson(logo: string | null = loadLogo()) {
+export function buildFlowJson(banners: Banners | null = loadBanners()) {
   return {
     version: "6.0",
     data_api_version: "3.0",
@@ -67,18 +75,7 @@ export function buildFlowJson(logo: string | null = loadLogo()) {
         layout: {
           type: "SingleColumnLayout",
           children: [
-            ...(logo
-              ? [
-                  {
-                    type: "Image",
-                    src: logo,
-                    width: 120,
-                    height: 120,
-                    "scale-type": "contain",
-                    "alt-text": "Eman Bakery",
-                  },
-                ]
-              : []),
+            ...banner(banners?.tall ?? null, 3),
             heading("Create invoice"),
             subheading("Step 1 of 3 • Select customer"),
             {
@@ -125,7 +122,7 @@ export function buildFlowJson(logo: string | null = loadLogo()) {
         layout: {
           type: "SingleColumnLayout",
           children: [
-            ...banner(logo, 150),
+            ...banner(banners?.slim ?? null, 5),
             subheading("Step 2 of 3 • Add products"),
             {
               type: "EmbeddedLink",
@@ -193,7 +190,7 @@ export function buildFlowJson(logo: string | null = loadLogo()) {
         layout: {
           type: "SingleColumnLayout",
           children: [
-            ...banner(logo, 150),
+            ...banner(banners?.slim ?? null, 5),
             subheading("Step 3 of 3 • Review and send"),
             body("${data.review_text}"),
             {
