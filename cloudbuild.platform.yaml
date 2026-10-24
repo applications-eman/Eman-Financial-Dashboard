@@ -1,0 +1,25 @@
+# Runs on every push to the working branch (see scripts/setup-auto-deploy.sh): tests first, then deploy the platform and send the
+# Flow to Meta. If any test fails, nothing is deployed.
+steps:
+  - id: platform-tests
+    name: node:24
+    dir: platform
+    entrypoint: bash
+    args: ["-c", "npm ci --ignore-scripts && npx tsc -p . && npm test"]
+  - id: router-tests
+    name: node:24
+    dir: router
+    entrypoint: bash
+    args: ["-c", "npm ci --ignore-scripts && npm test"]
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        PROJECT_ID="$PROJECT_ID" REGION=europe-west1 bash scripts/deploy-platform.sh
+        PROJECT_ID="$PROJECT_ID" bash scripts/update-flow.sh
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1800s
