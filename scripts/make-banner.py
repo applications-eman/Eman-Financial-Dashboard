@@ -1,69 +1,36 @@
-"""Builds the two Flow banners (full width, branded) from the logo: docs/whatsapp-invoicing/banner.jpg (tall, first screen)
-and banner-slim.jpg (other screens). Needs Pillow:  python3 scripts/make-banner.py <logo.png>
-The logo's white paper is removed (only the outside, the white inside the oval stays), then it is placed on a cream banner with the
-brand green and gold."""
+"""Prepares the Flow banners from the artwork the owner supplied (2000 x 667, 3:1).
+  python3 scripts/make-banner.py <rich-banner> <logo-on-green-banner>
+- docs/whatsapp-invoicing/banner.jpg       1080 x 360 (3:1), first screen: the rich artwork, scaled down
+- docs/whatsapp-invoicing/banner-slim.jpg  1080 x 216 (5:1), other screens: the logo from the green artwork on its own green
+Needs Pillow. Each file is kept under 100 KB (the Flow limit is 300 KB)."""
 import io
 import sys
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image
 
-LOGO = sys.argv[1]
 OUT = "docs/whatsapp-invoicing/"
-GREEN = (24, 99, 52)
-GOLD = (232, 176, 46)
-CREAM_TOP = (255, 248, 230)
-CREAM_BOTTOM = (250, 236, 200)
 
 
-def cut_out(path: str) -> Image.Image:
-    im = Image.open(path).convert("RGB")
-    w, h = im.size
-    mark = im.copy()
-    key = (1, 254, 1)
-    for seed in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)]:
-        ImageDraw.floodfill(mark, seed, key, thresh=28)
-    out = Image.new("RGBA", im.size)
-    px, src, m = out.load(), im.load(), mark.load()
-    for y in range(h):
-        for x in range(w):
-            px[x, y] = (*src[x, y], 0) if m[x, y] == key else (*src[x, y], 255)
-    # soften the cut edge so no white fringe is left
-    alpha = out.getchannel("A").filter(ImageFilter.MinFilter(3)).filter(ImageFilter.GaussianBlur(0.8))
-    out.putalpha(alpha)
-    return out
-
-
-def banner(logo: Image.Image, width: int, height: int, logo_h: int) -> Image.Image:
-    img = Image.new("RGB", (width, height))
-    d = ImageDraw.Draw(img)
-    for y in range(height):
-        t = y / max(1, height - 1)
-        d.line([(0, y), (width, y)], fill=tuple(round(a + (b - a) * t) for a, b in zip(CREAM_TOP, CREAM_BOTTOM)))
-    # a soft pattern of small gold grains along both sides
-    for side in (0, 1):
-        for i in range(9):
-            for j in range(3):
-                x = 30 + i * 22 + j * 9 if side == 0 else width - 30 - i * 22 - j * 9
-                y = height // 2 + (i - 4) * 12 + (j - 1) * 14
-                d.ellipse([x - 3, y - 6, x + 3, y + 6], fill=(*GOLD, 255) if False else GOLD if (i + j) % 3 == 0 else (240, 214, 140))
-    ratio = logo_h / logo.height
-    lg = logo.resize((round(logo.width * ratio), logo_h), Image.LANCZOS)
-    img.paste(lg, ((width - lg.width) // 2, (height - 12 - logo_h) // 2), lg)
-    d.rectangle([0, height - 12, width, height], fill=GREEN)
-    d.rectangle([0, height - 12, width, height - 9], fill=GOLD)
-    return img
-
-
-def save(img: Image.Image, name: str) -> None:
-    for q in (88, 80, 70, 60):
+def save(img: Image.Image, name: str, limit: int = 100_000) -> None:
+    for q in (90, 85, 80, 75, 70, 62, 55):
         buf = io.BytesIO()
-        img.save(buf, "JPEG", quality=q, optimize=True)
-        if len(buf.getvalue()) <= 60_000:
+        img.save(buf, "JPEG", quality=q, optimize=True, progressive=True)
+        if len(buf.getvalue()) <= limit:
             break
     open(OUT + name, "wb").write(buf.getvalue())
     print(name, img.size, len(buf.getvalue()), "bytes, quality", q)
 
 
-logo = cut_out(LOGO)
-save(banner(logo, 900, 300, 262), "banner.jpg")
-save(banner(logo, 900, 180, 150), "banner-slim.jpg")
+rich = Image.open(sys.argv[1]).convert("RGB")
+save(rich.resize((1080, 360), Image.LANCZOS), "banner.jpg")
+
+green = Image.open(sys.argv[2]).convert("RGB")
+w, h = green.size
+# the plain background colour: the average of a strip along the left edge
+strip = green.crop((0, 0, 60, h)).resize((1, 1), Image.BOX).getpixel((0, 0))
+logo = green.crop((int(w * 0.27), int(h * 0.10), int(w * 0.73), int(h * 0.93)))  # the emblem and a little green around it
+canvas = Image.new("RGB", (1080, 216), strip)
+lh = 200
+lw = round(logo.width * lh / logo.height)
+canvas.paste(logo.resize((lw, lh), Image.LANCZOS), ((1080 - lw) // 2, 8))
+save(canvas, "banner-slim.jpg")
