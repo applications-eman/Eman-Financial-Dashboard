@@ -30,6 +30,10 @@ The skill contains the component, styling, composition, accessibility, and CLI r
 
 Do not modify files inside `src/components/ui/` or `src/components/calendar/`. Keep these components intact and apply styling or customization where they are used.
 
+## Odoo
+
+Before writing code that talks to Odoo, read `docs/odoo-reference.md` (official links and facts proven on our live Odoo).
+
 ## Setup
 
 This project uses npm.
