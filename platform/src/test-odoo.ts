@@ -30,6 +30,10 @@ export class FakeOdoo implements OdooPort {
     }
   }
 
+  uncleared: { name: string; ref: string }[] = [];
+  async listUncleared() {
+    return this.uncleared;
+  }
   async findInvoiceByRef(ref: string) {
     return this.moves.find((m) => m.ref === ref) ?? null;
   }

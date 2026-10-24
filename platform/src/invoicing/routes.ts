@@ -6,6 +6,7 @@ import type { Db } from "../db.ts";
 import { handleFlow, stepOf } from "./flow.ts";
 import { decryptFlowRequest, encryptFlowResponse, FlowDecryptError } from "./flow-crypto.ts";
 import type { OdooPort } from "./odoo.ts";
+import { queueHealth, sweepStuck } from "./ops.ts";
 import type { WaPort } from "./wa.ts";
 import { handleInvoicingWebhook } from "./webhook.ts";
 import type { KeyObject } from "node:crypto";
@@ -23,6 +24,8 @@ export interface InvoicingDeps {
   kick: () => void;
   /** processes the queue now and returns how many requests were handled */
   drainNow: () => Promise<number>;
+  /** the journal invoices are written to (the health report checks it for stuck invoices) */
+  journalId?: number | null;
 }
 
 const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -96,9 +99,20 @@ export function mountInvoicing<E extends Env>(app: Hono<E>, db: Db, d: Invoicing
   app.post("/internal/tick", async (c) => {
     if (!d.tickSecret || !same(c.req.header("x-tick-secret") ?? "", d.tickSecret))
       return c.json({ error: "unauthorized" }, 401);
+    const swept = await sweepStuck(db).catch(() => 0);
     const handled = await d.drainNow();
     await db.query(`select public.purge_seen_messages()`).catch(() => undefined);
     await db.query(`select public.purge_flow_sessions()`).catch(() => undefined);
-    return c.json({ handled });
+    return c.json({ handled, swept });
+  });
+
+  // An uptime check or a person with the secret: 200 when everything is fine, 503 with the reasons when not.
+  app.get("/internal/queue-health", async (c) => {
+    if (!d.tickSecret || !same(c.req.header("x-tick-secret") ?? "", d.tickSecret))
+      return c.json({ error: "unauthorized" }, 401);
+    const health = await queueHealth(db, d.odoo, { journalId: d.journalId });
+    if (!health.ok)
+      console.error(JSON.stringify({ severity: "ERROR", message: "health_problem", problems: health.problems }));
+    return c.json(health, health.ok ? 200 : 503);
   });
 }

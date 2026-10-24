@@ -51,6 +51,8 @@ export interface OdooPort {
   findPartner(i: { vat?: string | null; name: string }): Promise<number | null>;
   findProduct(name: string): Promise<number | null>;
   ping(): Promise<string>;
+  /** invoices of this journal that are posted but not cleared by ZATCA and older than the given minutes */
+  listUncleared(journalId: number, olderThanMinutes: number): Promise<{ name: string; ref: string }[]>;
 }
 
 /**
@@ -404,6 +406,23 @@ export class Json2Odoo implements OdooPort {
       2,
     );
     return rows.length === 1 ? rows[0].id : null;
+  }
+
+  async listUncleared(journalId: number, olderThanMinutes: number): Promise<{ name: string; ref: string }[]> {
+    const cutoff = new Date(Date.now() - olderThanMinutes * 60_000).toISOString().replace("T", " ").slice(0, 19);
+    const rows = await this.searchRead<{ name: string | false; ref: string | false }>(
+      "account.move",
+      [
+        ["journal_id", "=", journalId],
+        ["move_type", "=", "out_invoice"],
+        ["state", "=", "posted"],
+        ["l10n_sa_edi_state", "not in", ["accepted", "warning"]],
+        ["create_date", "<", cutoff],
+      ],
+      ["name", "ref"],
+      50,
+    );
+    return rows.map((r) => ({ name: String(r.name || ""), ref: String(r.ref || "") }));
   }
 
   async ping(): Promise<string> {

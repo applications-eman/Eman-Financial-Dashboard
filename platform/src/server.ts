@@ -66,7 +66,16 @@ function buildInvoicing(): NonNullable<AppDeps["invoicing"]> {
   const kick = () =>
     void drainNow().catch((e: unknown) => log("drain_failed", { error: e instanceof Error ? e.message : String(e) }));
   setInterval(kick, 30_000).unref();
-  return { odoo, wa, flowKey, appSecret: need("META_APP_SECRET"), tickSecret: need("TICK_SECRET"), kick, drainNow };
+  return {
+    odoo,
+    wa,
+    flowKey,
+    appSecret: need("META_APP_SECRET"),
+    tickSecret: need("TICK_SECRET"),
+    kick,
+    drainNow,
+    journalId: worker.salesJournalId,
+  };
 }
 
 // A problem with the invoicing settings must never take the admin screens down: invoicing stays off and /health says why.

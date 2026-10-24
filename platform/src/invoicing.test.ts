@@ -5,6 +5,7 @@ import { handleFlow } from "./invoicing/flow.ts";
 import { buildFlowJson } from "./invoicing/flow-json.ts";
 import { submitRequest } from "./invoicing/intake.ts";
 import { OdooError } from "./invoicing/odoo.ts";
+import { queueHealth, sweepStuck } from "./invoicing/ops.ts";
 import type { InvoicingDeps } from "./invoicing/routes.ts";
 import { TEST_TAG, TestModeWa } from "./invoicing/wa.ts";
 import { handleInvoicingWebhook } from "./invoicing/webhook.ts";
@@ -900,4 +901,65 @@ test("flow: more than 20 customers or products switch from round ticks to a drop
   assert.equal(added.screen, "ITEMS");
   assert.equal(added.data.error_message, undefined);
   assert.match(String(added.data.cart_text), /1\./);
+});
+
+test("ops: the health report is quiet when fine and names every real problem", async () => {
+  const w = await world();
+  const calm = await queueHealth(w.db, w.odoo, { journalId: 23 });
+  assert.equal(calm.ok, true, calm.problems.join(" | "));
+
+  // an invoice that has waited too long
+  const r = await queued(w);
+  await w.db.query(`update invoice_requests set queued_at = now() - interval '40 minutes' where id=$1`, [r.id]);
+  const stuck = await queueHealth(w.db, w.odoo, { journalId: 23 });
+  assert.equal(stuck.ok, false);
+  assert.match(stuck.problems.join(" "), /waited 40 minutes/);
+  await drain(w.worker);
+
+  // key expiry
+  const today = new Date("2026-10-24T00:00:00Z");
+  await w.db.query(
+    `insert into platform_settings (key, value) values ('odoo_key_expires_on', '"2026-11-02"') on conflict (key) do update set value = excluded.value`,
+  );
+  assert.match((await queueHealth(w.db, w.odoo, { now: today })).problems.join(" "), /expires in 9 day/);
+  await w.db.query(`update platform_settings set value = '"2026-10-20"' where key='odoo_key_expires_on'`);
+  assert.match((await queueHealth(w.db, w.odoo, { now: today })).problems.join(" "), /expired on 2026-10-20/);
+  await w.db.query(`update platform_settings set value = '"2027-03-01"' where key='odoo_key_expires_on'`);
+  assert.equal((await queueHealth(w.db, w.odoo, { now: today })).ok, true);
+
+  // an invoice that sits in Odoo without ZATCA clearance, and a paused service
+  w.odoo.uncleared = [{ name: "WTS/2026/00009", ref: "WA-X" }];
+  assert.match((await queueHealth(w.db, w.odoo, { journalId: 23, now: today })).problems.join(" "), /WTS\/2026\/00009/);
+  w.odoo.uncleared = [];
+  await w.db.query(
+    `insert into platform_settings (key, value) values ('kill_switch', 'true') on conflict (key) do update set value = excluded.value`,
+  );
+  assert.match((await queueHealth(w.db, w.odoo, { now: today })).problems.join(" "), /paused/);
+});
+
+test("ops: the sweep retries what failed for a passing reason, at most 3 times, never a ZATCA rejection", async () => {
+  const w = await world();
+  const r = await queued(w);
+  w.odoo.zatca = "pending";
+  await drain(w.worker); // answer not confirmed yet: stays in processing
+  const fail = async (code: string) =>
+    w.db.query(
+      `update invoice_requests set status='failed', error_code=$2, finished_at = now() - interval '2 hours', odoo_move_id = coalesce(odoo_move_id, 1) where id=$1`,
+      [r.id, code],
+    );
+  await fail("zatca_rejected");
+  assert.equal(await sweepStuck(w.db), 0, "a rejection is for a person to decide");
+  await fail("clearance_unconfirmed");
+  assert.equal(await sweepStuck(w.db), 1);
+  assert.equal((await w.db.query(`select status from invoice_requests where id=$1`, [r.id]))[0].status, "queued");
+  await fail("clearance_unconfirmed");
+  assert.equal(await sweepStuck(w.db), 0, "not again within 30 minutes");
+  for (let i = 0; i < 2; i++) {
+    await w.db.query(`update invoice_request_events set at = now() - interval '2 hours' where kind='swept'`);
+    await fail("clearance_unconfirmed");
+    await sweepStuck(w.db);
+  }
+  await w.db.query(`update invoice_request_events set at = now() - interval '2 hours' where kind='swept'`);
+  await fail("clearance_unconfirmed");
+  assert.equal(await sweepStuck(w.db), 0, "three tries are the limit");
 });

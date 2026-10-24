@@ -75,6 +75,8 @@ const SETTINGS: Record<string, z.ZodType> = {
   test_mode: z.boolean(),
   queue_alert_length: z.number().int().min(1).max(1000),
   queue_alert_wait_minutes: z.number().int().min(1).max(240),
+  // the day the Odoo API key stops working (the platform warns 14 days before)
+  odoo_key_expires_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 };
 
 async function audit(
