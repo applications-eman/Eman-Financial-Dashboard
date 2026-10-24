@@ -1,5 +1,16 @@
 // biome-ignore-all lint/suspicious/noTemplateCurlyInString: "${data.x}" and "${form.x}" are Meta Flow expressions, not JavaScript templates
 // The Flow definition uploaded to Meta (Flow JSON 6.0, data endpoint 3.0). Generated, so tests can check it.
+import { existsSync, readFileSync } from "node:fs";
+
+/** The company logo, if docs/whatsapp-invoicing/logo.png (or .jpg) exists: shown at the top of the first screen (about 300 KB at most). */
+export function loadLogo(): string | null {
+  for (const name of ["logo.png", "logo.jpg", "logo.jpeg"]) {
+    const url = new URL(`../../../docs/whatsapp-invoicing/${name}`, import.meta.url);
+    if (existsSync(url)) return readFileSync(url).toString("base64");
+  }
+  return null;
+}
+
 const heading = (text: string) => ({ type: "TextHeading", text });
 const body = (text: string) => ({ type: "TextBody", text });
 const subheading = (text: string) => ({ type: "TextSubheading", text });
@@ -10,14 +21,20 @@ const optionArray = (example: unknown[]) => ({
   type: "array",
   items: {
     type: "object",
-    properties: { id: { type: "string" }, title: { type: "string" }, description: { type: "string" } },
+    properties: {
+      id: { type: "string" },
+      title: { type: "string" },
+      description: { type: "string" },
+      image: { type: "string" },
+      "alt-text": { type: "string" },
+    },
   },
   __example__: example,
 });
 const str = (example: string) => ({ type: "string", __example__: example });
 const bool = (example: boolean) => ({ type: "boolean", __example__: example });
 
-export function buildFlowJson() {
+export function buildFlowJson(logo: string | null = loadLogo()) {
   return {
     version: "6.0",
     data_api_version: "3.0",
@@ -35,6 +52,18 @@ export function buildFlowJson() {
         layout: {
           type: "SingleColumnLayout",
           children: [
+            ...(logo
+              ? [
+                  {
+                    type: "Image",
+                    src: logo,
+                    width: 120,
+                    height: 120,
+                    "scale-type": "contain",
+                    "alt-text": "Eman Bakery",
+                  },
+                ]
+              : []),
             heading("Create invoice"),
             subheading("Step 1 of 3 • Select customer"),
             {

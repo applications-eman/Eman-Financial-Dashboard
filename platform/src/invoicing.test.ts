@@ -1013,3 +1013,36 @@ test("load: 60 invoices from 12 salesmen are each issued exactly once, in order,
   assert.equal(w.odoo.moves.length, 60);
   assert.ok(Date.now() - started < 60_000, "the rehearsal itself must stay fast");
 });
+
+test("flow: product pictures travel with the round ticks, and are left out of long drop-down lists", async () => {
+  const w = await world();
+  const t = await session(w);
+  await w.db.query(`update products set image = 'QUJD' where id=$1`, [w.product]);
+  await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: t,
+    data: { step: "select_customer", customer: w.customer },
+  });
+  const ticks = await handleFlow(w.db, {
+    action: "data_exchange",
+    screen: "ITEMS",
+    flow_token: t,
+    data: { step: "select_category", category: w.category },
+  });
+  const [item] = ticks.data.products as { image?: string; "alt-text"?: string }[];
+  assert.equal(item.image, "QUJD");
+  assert.equal(item["alt-text"], "SHAMI - 5");
+  for (let i = 0; i < 24; i++)
+    await w.db.query(
+      `insert into products (name, category_id, max_price, odoo_product_id, image) values ($1,$2,9,$3,'QUJD')`,
+      [`More ${i}`, w.category, 500 + i],
+    );
+  const long = await handleFlow(w.db, {
+    action: "data_exchange",
+    screen: "ITEMS",
+    flow_token: t,
+    data: { step: "select_category", category: w.category },
+  });
+  assert.equal(long.data.use_list, true);
+  assert.ok((long.data.products as { image?: string }[]).every((p) => p.image === undefined));
+});

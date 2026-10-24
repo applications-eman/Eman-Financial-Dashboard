@@ -37,6 +37,9 @@ interface Opt {
   id: string;
   title: string;
   description?: string;
+  /** small picture (base64), shown beside the option when the list is round ticks */
+  image?: string;
+  "alt-text"?: string;
 }
 
 /** Meta's lists must never be empty (the phone silently refuses the screen), so an empty list shows one placeholder row. */
@@ -69,14 +72,15 @@ async function categoryOptions(db: Db): Promise<Opt[]> {
 /** Products of a category that are not in the cart yet (a product can be on the invoice only once). */
 async function productOptions(db: Db, categoryId: string | null, inCart: string[] = []): Promise<Opt[]> {
   if (!categoryId) return [];
-  const rows = await db.query<{ id: string; name: string; max_price: string }>(
-    `select id, name, max_price from products where category_id = $1 and status = 'active' and max_price is not null and odoo_product_id is not null and not (id::text = any($2::text[])) order by lower(name) limit ${MAX_OPTIONS}`,
+  const rows = await db.query<{ id: string; name: string; max_price: string; image: string | null }>(
+    `select id, name, max_price, image from products where category_id = $1 and status = 'active' and max_price is not null and odoo_product_id is not null and not (id::text = any($2::text[])) order by lower(name) limit ${MAX_OPTIONS}`,
     [categoryId, inCart],
   );
   return rows.map((r) => ({
     id: r.id,
     title: cut(r.name),
     description: `Maximum ${money(Number(r.max_price))} before VAT`,
+    ...(r.image ? { image: r.image, "alt-text": r.name } : {}),
   }));
 }
 
@@ -145,6 +149,8 @@ async function itemsScreen(
   );
   // up to 20 products show as round ticks; longer lists use a drop-down
   const ticks = free.length <= MAX_TICKS;
+  // pictures only travel with the short tick lists (the data of one answer is limited to 1 MB)
+  if (!ticks) for (const p of free) delete p.image;
   // once a product is chosen (tick mode), the others leave the list so quantity and price sit right under it
   const chosen = ticks ? free.find((p) => p.id === o.selected) : undefined;
   return {

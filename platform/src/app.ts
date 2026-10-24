@@ -750,7 +750,7 @@ export function createApp(deps: AppDeps) {
   app.get("/admin/products", async (c) =>
     c.json(
       await db.query(
-        `select p.id, p.name, p.max_price, p.status, p.odoo_product_id, p.category_id, c.name as category from products p left join product_categories c on c.id = p.category_id order by coalesce(c.sort_order, 9999), lower(p.name)`,
+        `select p.id, p.name, p.max_price, p.status, p.odoo_product_id, p.category_id, c.name as category, p.image from products p left join product_categories c on c.id = p.category_id order by coalesce(c.sort_order, 9999), lower(p.name)`,
       ),
     ),
   );
@@ -832,6 +832,49 @@ export function createApp(deps: AppDeps) {
       return after;
     });
     return c.json(out);
+  });
+
+  // a small picture for the WhatsApp product list: JPEG or PNG, at most 20 KB (the dashboard shrinks it first)
+  const MAX_IMAGE_BYTES = 20_000;
+  app.put("/admin/products/:id/image", async (c) => {
+    const actor = c.get("actor");
+    const id = uuid.parse(c.req.param("id"));
+    const { image } = await body(
+      c,
+      z.object({
+        image: z
+          .string()
+          .regex(/^[A-Za-z0-9+/]+={0,2}$/)
+          .max(40000),
+      }),
+    );
+    const bytes = Buffer.from(image, "base64");
+    const isJpeg = bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    const isPng = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+    if (!isJpeg && !isPng) throw new HttpError(400, "bad_image", "The picture must be a JPEG or PNG.");
+    if (bytes.length > MAX_IMAGE_BYTES)
+      throw new HttpError(
+        400,
+        "image_too_big",
+        `The picture is ${Math.ceil(bytes.length / 1000)} KB; the limit is 20 KB.`,
+      );
+    await db.tx(async (t) => {
+      const [row] = await t.query(`update products set image=$2 where id=$1 returning id, name`, [id, image]);
+      if (!row) throw new HttpError(404, "not_found", "Product not found.");
+      await audit(t, actor, "set_image", "product", id, null, { bytes: bytes.length });
+    });
+    return c.json({ ok: true, bytes: bytes.length });
+  });
+
+  app.delete("/admin/products/:id/image", async (c) => {
+    const actor = c.get("actor");
+    const id = uuid.parse(c.req.param("id"));
+    await db.tx(async (t) => {
+      const [row] = await t.query(`update products set image=null where id=$1 returning id`, [id]);
+      if (!row) throw new HttpError(404, "not_found", "Product not found.");
+      await audit(t, actor, "remove_image", "product", id, null, null);
+    });
+    return c.json({ ok: true });
   });
 
   app.delete("/admin/products/:id", async (c) => {

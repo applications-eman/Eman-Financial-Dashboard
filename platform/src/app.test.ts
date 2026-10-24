@@ -217,3 +217,38 @@ test("validation: no duplicate customers, products, categories or services; VAT 
   assert.equal((await call("DELETE", `/admin/customers/${b.id}`)).status, 404);
   assert.equal((await call("DELETE", `/admin/products/${p.id}`)).status, 200);
 });
+
+test("product pictures: only small JPEG/PNG, shown in the list, removable, audited", async () => {
+  const { call, db } = await setup();
+  const made = await call("POST", "/admin/products/bulk", {
+    rows: [{ name: "Shami", category: "Bread", max_price: 4.5 }],
+  });
+  assert.equal(made.status, 200);
+  const [p] = await db.query(`select id from products where name='Shami'`);
+  // a real (tiny) JPEG header and a real PNG header are accepted
+  const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]).toString("base64");
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]).toString("base64");
+  assert.equal((await call("PUT", `/admin/products/${p.id}/image`, { image: jpeg })).status, 200);
+  assert.equal((await call("PUT", `/admin/products/${p.id}/image`, { image: png })).status, 200);
+  const list = await call("GET", "/admin/products");
+  assert.equal((list.json as unknown as { image: string }[])[0].image, png);
+  // not a picture, too big, unknown product, read-only role
+  const text = Buffer.from("hello world").toString("base64");
+  assert.equal((await call("PUT", `/admin/products/${p.id}/image`, { image: text })).status, 400);
+  const big = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(25_000)]).toString("base64");
+  assert.equal((await call("PUT", `/admin/products/${p.id}/image`, { image: big })).status, 400);
+  assert.equal(
+    (await call("PUT", "/admin/products/00000000-0000-4000-8000-000000000000/image", { image: jpeg })).status,
+    404,
+  );
+  assert.equal((await call("PUT", `/admin/products/${p.id}/image`, { image: jpeg }, "sup@example.com")).status, 403);
+  assert.equal((await call("DELETE", `/admin/products/${p.id}/image`)).status, 200);
+  assert.equal(((await call("GET", "/admin/products")).json as unknown as { image: string | null }[])[0].image, null);
+  const log = await db.query(
+    `select action from audit_log where entity='product' and action like '%image%' order by id`,
+  );
+  assert.deepEqual(
+    log.map((r) => r.action),
+    ["set_image", "set_image", "remove_image"],
+  );
+});

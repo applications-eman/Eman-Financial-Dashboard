@@ -2,7 +2,7 @@
 
 import { type FormEvent, useState } from "react";
 
-import { Plus, Trash2, Upload } from "lucide-react";
+import { ImagePlus, Plus, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -22,6 +22,25 @@ interface Product {
   category: string | null;
   max_price: string | null;
   status: string;
+  image: string | null;
+}
+
+/** Shrinks a photo to a 96 x 96 square JPEG under 20 KB, so the WhatsApp list stays light. Returns base64 without the prefix. */
+async function shrink(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  const size = 96;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("This browser cannot prepare the picture.");
+  const side = Math.min(bitmap.width, bitmap.height);
+  ctx.drawImage(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side, 0, 0, size, size);
+  for (const quality of [0.85, 0.7, 0.55, 0.4]) {
+    const data = canvas.toDataURL("image/jpeg", quality).split(",")[1] ?? "";
+    if (Math.ceil((data.length * 3) / 4) <= 20_000) return data;
+  }
+  throw new Error("The picture is still too big after shrinking. Try another one.");
 }
 
 /** CSV lines "name, category, max price" (a header line is skipped; Excel can save/copy as CSV). */
@@ -71,6 +90,17 @@ export function ProductsTab() {
     }
   }
 
+  async function setPicture(p: Product, file: File | undefined) {
+    if (!file) return;
+    try {
+      const image = await shrink(file);
+      await change(() => platform("PUT", `/products/${p.id}/image`, { image }), "Picture saved");
+      void load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "The picture could not be used.");
+    }
+  }
+
   async function setLimit(p: Product) {
     const v = prompt(
       `Maximum price before VAT for "${p.name}" (empty = no limit, cannot be invoiced)`,
@@ -101,6 +131,9 @@ export function ProductsTab() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead>
+                <span className="sr-only">Picture</span>
+              </TableHead>
               <TableHead>Product</TableHead>
               <TableHead>Category</TableHead>
               <TableHead className="text-end">Max price (before VAT)</TableHead>
@@ -112,6 +145,53 @@ export function ProductsTab() {
           <TableBody>
             {(rows ?? []).map((p) => (
               <TableRow key={p.id}>
+                <TableCell className="w-24">
+                  <div className="flex items-center gap-1">
+                    {p.image ? (
+                      // biome-ignore lint/performance/noImgElement: a 96px picture from the platform, not a site image
+                      <img
+                        src={`data:image/jpeg;base64,${p.image}`}
+                        alt={p.name}
+                        width={36}
+                        height={36}
+                        className="size-9 rounded object-cover"
+                      />
+                    ) : null}
+                    <Label
+                      htmlFor={`img-${p.id}`}
+                      className="inline-flex size-8 cursor-pointer items-center justify-center rounded-md hover:bg-muted"
+                      title={p.image ? "Change picture" : "Add picture"}
+                    >
+                      <ImagePlus className="size-4" />
+                      <span className="sr-only">
+                        {p.image ? "Change picture" : "Add picture"} for {p.name}
+                      </span>
+                    </Label>
+                    <input
+                      id={`img-${p.id}`}
+                      type="file"
+                      accept="image/*"
+                      className="sr-only"
+                      onChange={(e) => {
+                        void setPicture(p, e.target.files?.[0]);
+                        e.target.value = "";
+                      }}
+                    />
+                    {p.image ? (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`Remove the picture of ${p.name}`}
+                        onClick={async () => {
+                          await change(() => platform("DELETE", `/products/${p.id}/image`), "Picture removed");
+                          void load();
+                        }}
+                      >
+                        <Trash2 />
+                      </Button>
+                    ) : null}
+                  </div>
+                </TableCell>
                 <TableCell className="font-medium">{p.name}</TableCell>
                 <TableCell>{p.category ?? <Badge variant="outline">none</Badge>}</TableCell>
                 <TableCell className="text-end tabular-nums">{p.max_price ?? "—"}</TableCell>
@@ -138,7 +218,7 @@ export function ProductsTab() {
             ))}
             {rows?.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="h-20 text-center text-muted-foreground">
+                <TableCell colSpan={5} className="h-20 text-center text-muted-foreground">
                   No products yet.
                 </TableCell>
               </TableRow>

@@ -18,6 +18,16 @@ const log = (event: string, extra: Record<string, unknown> = {}) => console.log(
 
 const db = new PgDb(need("DATABASE_URL"));
 
+// Small additive change applied on start so no one has to run SQL by hand (the same text is in db/0005_product_images.sql).
+// If it cannot be applied, product pictures stay off and everything else works.
+await db
+  .query(
+    `alter table public.products add column if not exists image text check (image is null or length(image) <= 40000)`,
+  )
+  .catch((e: unknown) =>
+    log("schema_step_failed", { step: "0005_product_images", error: e instanceof Error ? e.message : String(e) }),
+  );
+
 // Invoicing switches on only when ALL of its settings are present, so the admin screens work before Odoo/WhatsApp are connected.
 const INVOICING_KEYS = [
   "ODOO_URL",
