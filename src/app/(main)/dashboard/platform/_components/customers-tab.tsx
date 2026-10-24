@@ -26,16 +26,30 @@ interface Customer {
 export function CustomersTab() {
   const [q, setQ] = useState("");
   const { rows, error, load } = usePlatformList<Customer>(`/customers?limit=500&q=${encodeURIComponent(q.trim())}`);
-  const [f, setF] = useState({ name: "", vat: "" });
+  const [f, setF] = useState({ name: "", vat: "", street: "", district: "", city: "", zip: "", building: "" });
 
   async function add(e: FormEvent) {
     e.preventDefault();
     const r = await change(
-      () => platform("POST", "/customers", { name: f.name, vat: f.vat.trim() === "" ? null : f.vat.trim() }),
+      () =>
+        platform("POST", "/customers", {
+          name: f.name,
+          vat: f.vat.trim() === "" ? null : f.vat.trim(),
+          // the address is only sent when the customer has a VAT number (a company); the country and region fill themselves in
+          ...(f.vat.trim() === ""
+            ? {}
+            : {
+                street: f.street || null,
+                district: f.district || null,
+                city: f.city || null,
+                zip: f.zip || null,
+                building_number: f.building || null,
+              }),
+        }),
       "Customer added",
     );
     if (r) {
-      setF({ name: "", vat: "" });
+      setF({ name: "", vat: "", street: "", district: "", city: "", zip: "", building: "" });
       void load();
     }
   }
@@ -125,11 +139,35 @@ export function CustomersTab() {
           <Label htmlFor="c-vat">VAT number (15 digits, optional)</Label>
           <Input id="c-vat" dir="ltr" value={f.vat} onChange={(e) => setF({ ...f, vat: e.target.value })} />
         </div>
+        {f.vat.trim() !== "" ? (
+          <fieldset className="grid gap-2 rounded-lg border p-3 sm:col-span-3 sm:grid-cols-5">
+            <legend className="px-1 text-muted-foreground text-xs">
+              Address of the company (needed on its tax invoices). The country and region are filled in automatically.
+            </legend>
+            {(
+              [
+                ["street", "Street"],
+                ["district", "District"],
+                ["city", "City"],
+                ["zip", "Postal code"],
+                ["building", "Building no. (4 digits)"],
+              ] as const
+            ).map(([key, label]) => (
+              <div key={key} className="space-y-1">
+                <Label htmlFor={`c-${key}`}>{label}</Label>
+                <Input id={`c-${key}`} value={f[key]} onChange={(e) => setF({ ...f, [key]: e.target.value })} />
+              </div>
+            ))}
+          </fieldset>
+        ) : null}
         <Button type="submit">
           <Plus data-icon="inline-start" />
           Add customer
         </Button>
       </form>
+      <p className="text-muted-foreground text-xs">
+        A customer added here is created in Odoo at once. Nothing has to be entered twice.
+      </p>
     </div>
   );
 }

@@ -2,6 +2,14 @@
 
 For the accounts team and the owner. Plain steps; nothing here needs programming.
 
+## Adding things (one place only)
+Everything is added in the dashboard; Odoo receives it at once.
+- **Customer:** Customers tab, name (and VAT number for a company, then its address). It is created in Odoo by itself. Then give it to the salesmen.
+- **Product:** Products tab, name, category, maximum price. It is created in Odoo (the maximum price is its Sales Price there, with the standard 15% VAT).
+- **Changing or deleting:** changes follow into Odoo; a delete archives the record in Odoo (Odoo keeps what has history).
+- **Something that already exists in Odoo:** Settings > "Import and link from Odoo" brings it in.
+- If Odoo refuses (for example a wrong VAT number), the dashboard shows Odoo's reason and nothing is saved.
+
 ## Every day (2 minutes)
 1. Dashboard > WhatsApp Platform > **Settings**. The top card must say **"Everything is working"**. If it lists a problem, follow the table below.
 2. **Invoices** tab, filter by status: look at anything *failed* or *rejected* from the last day. Each row has the reference the salesman was given.

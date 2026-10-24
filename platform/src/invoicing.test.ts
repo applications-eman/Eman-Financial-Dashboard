@@ -1046,3 +1046,66 @@ test("flow: product pictures travel with the round ticks, and are left out of lo
   assert.equal(long.data.use_list, true);
   assert.ok((long.data.products as { image?: string }[]).every((p) => p.image === undefined));
 });
+
+test("master data: what is added or changed in the platform reaches Odoo at once; Odoo's own records can be brought in", async () => {
+  const w = await httpWorld();
+  const call = async (method: string, path: string, body?: unknown) => {
+    const r = await w.app.request(path, {
+      method,
+      headers: { authorization: `Bearer ${token("boss@example.com")}`, "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    return { status: r.status, json: (await r.json().catch(() => null)) as Row };
+  };
+
+  // a new customer: created in Odoo and linked, nothing to type twice
+  const made = await call("POST", "/admin/customers", { name: "Noor Market", vat: "300000000000003", city: "Jeddah" });
+  assert.equal(made.status, 201);
+  assert.ok(made.json.odoo_partner_id, "linked to the Odoo record");
+  assert.equal(w.odoo.masterPartners.length, 1);
+  assert.equal(w.odoo.masterPartners[0].name, "Noor Market");
+  // renamed: Odoo follows
+  assert.equal((await call("PATCH", `/admin/customers/${made.json.id}`, { name: "Noor Supermarket" })).status, 200);
+  assert.equal(w.odoo.masterPartners[0].name, "Noor Supermarket");
+  // deleted: Odoo keeps it, archived
+  assert.equal((await call("DELETE", `/admin/customers/${made.json.id}`)).status, 200);
+  assert.equal(w.odoo.masterPartners[0].active, false);
+
+  // products: a row creates the Odoo product with the price as its sales price
+  const bulk = await call("POST", "/admin/products/bulk", {
+    rows: [{ name: "Fresh Samoon", category: "Bread", max_price: 1.5 }],
+  });
+  assert.equal(bulk.status, 200);
+  assert.deepEqual(
+    [w.odoo.masterProducts[0].name, w.odoo.masterProducts[0].price, w.odoo.masterProducts[0].category],
+    ["Fresh Samoon", 1.5, "Bread"],
+  );
+  const [p] = await w.db.query(`select id, odoo_product_id from products where name='Fresh Samoon'`);
+  assert.ok(p.odoo_product_id);
+  assert.equal((await call("PATCH", `/admin/products/${p.id}`, { max_price: 1.75 })).status, 200);
+  assert.equal(w.odoo.masterProducts[0].price, 1.75);
+  assert.equal((await call("DELETE", `/admin/products/${p.id}`)).status, 200);
+  assert.equal(w.odoo.masterProducts[0].active, false);
+
+  // Odoo refuses: the platform saves nothing and says why
+  w.odoo.createPartner = async () => {
+    throw new OdooError("ValidationError: invalid VAT", 422, false);
+  };
+  const refused = await call("POST", "/admin/customers", { name: "Refused Shop" });
+  assert.equal(refused.status, 502);
+  assert.match(String(refused.json.message), /Nothing was saved/);
+  assert.equal((await w.db.query(`select 1 from customers where name='Refused Shop'`)).length, 0);
+
+  // records that exist in Odoo only are brought in with one press
+  w.odoo.masterPartners.push({ id: 9001, name: "Odoo Only Cafe", vat: null, active: true });
+  w.odoo.masterProducts.push({ id: 9002, name: "Odoo Only Roll", price: 2.2, category: "Rolls", active: true });
+  const link = await call("POST", "/admin/odoo/link");
+  assert.deepEqual(link.json.imported, { customers: 1, products: 1 });
+  const [imp] = await w.db.query(`select max_price, odoo_product_id from products where name='Odoo Only Roll'`);
+  assert.equal(String(imp.max_price), "2.20");
+  assert.equal(
+    (await w.db.query(`select 1 from product_categories where name='Rolls'`)).length,
+    1,
+    "its category came along",
+  );
+});

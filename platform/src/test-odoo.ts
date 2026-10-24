@@ -31,6 +31,56 @@ export class FakeOdoo implements OdooPort {
   }
 
   uncleared: { name: string; ref: string }[] = [];
+  masterPartners: {
+    id: number;
+    name: string;
+    vat: string | null;
+    active: boolean;
+    address?: Record<string, unknown>;
+  }[] = [];
+  masterProducts: { id: number; name: string; price: number; category: string | null; active: boolean }[] = [];
+  private nextMaster = 5000;
+  async createPartner(i: import("./invoicing/odoo.ts").PartnerInput) {
+    const id = this.nextMaster++;
+    this.masterPartners.push({ id, name: i.name, vat: i.vat ?? null, active: true, address: { ...i } });
+    this.partners.set(i.name.toLowerCase(), id);
+    return id;
+  }
+  async updatePartner(id: number, i: Partial<import("./invoicing/odoo.ts").PartnerInput>) {
+    const p = this.masterPartners.find((x) => x.id === id);
+    if (!p) throw new OdooError("not found", 404, false);
+    if (i.name !== undefined) p.name = i.name;
+    if (i.vat !== undefined) p.vat = i.vat ?? null;
+  }
+  async archivePartner(id: number) {
+    const p = this.masterPartners.find((x) => x.id === id);
+    if (p) p.active = false;
+  }
+  async createProduct(i: { name: string; price: number; category?: string | null }) {
+    const id = this.nextMaster++;
+    this.masterProducts.push({ id, name: i.name, price: i.price, category: i.category ?? null, active: true });
+    this.products.set(i.name.toLowerCase(), id);
+    return id;
+  }
+  async updateProduct(id: number, i: { name?: string; price?: number; category?: string | null }) {
+    const p = this.masterProducts.find((x) => x.id === id);
+    if (!p) throw new OdooError("not found", 404, false);
+    if (i.name !== undefined) p.name = i.name;
+    if (i.price !== undefined) p.price = i.price;
+    if (i.category !== undefined) p.category = i.category;
+  }
+  async archiveProduct(id: number) {
+    const p = this.masterProducts.find((x) => x.id === id);
+    if (p) p.active = false;
+  }
+  async listCustomers() {
+    return this.masterPartners.filter((p) => p.active).map((p) => ({ id: p.id, name: p.name, vat: p.vat }));
+  }
+  async listProducts() {
+    return this.masterProducts
+      .filter((p) => p.active)
+      .map((p) => ({ id: p.id, name: p.name, price: p.price, category: p.category }));
+  }
   async listUncleared() {
     return this.uncleared;
   }

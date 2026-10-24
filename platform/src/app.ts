@@ -6,8 +6,10 @@ import { type Actor, type AuthCfg, actorFor, canDecideApprovals, canWrite, verif
 import type { Db } from "./db.ts";
 import { setting } from "./invoicing/intake.ts";
 import { msg } from "./invoicing/messages.ts";
+import { OdooError } from "./invoicing/odoo.ts";
 import { queueHealth } from "./invoicing/ops.ts";
 import { type InvoicingDeps, mountInvoicing } from "./invoicing/routes.ts";
+import { plainReason } from "./invoicing/worker.ts";
 import { makeLimiter } from "./ratelimit.ts";
 import { SAMPLE_CATEGORIES, SAMPLE_CUSTOMERS } from "./sample-data.ts";
 import { isSafeTargetUrl } from "./ssrf.ts";
@@ -168,6 +170,26 @@ export function createApp(deps: AppDeps) {
 
   const body = async <T extends z.ZodType>(c: { req: { json(): Promise<unknown> } }, schema: T): Promise<z.infer<T>> =>
     schema.parse(await c.req.json().catch(() => ({})));
+
+  // The platform is where customers and products are added and changed; Odoo receives them at once (when Odoo is connected).
+  const odooPort = () => deps.invoicing?.odoo ?? null;
+  const viaOdoo = async <T>(what: () => Promise<T>): Promise<T> => {
+    try {
+      return await what();
+    } catch (e) {
+      if (e instanceof OdooError)
+        throw new HttpError(
+          502,
+          "odoo_error",
+          `Odoo did not accept this: ${plainReason(e.message)}. Nothing was saved.`,
+        );
+      throw e;
+    }
+  };
+  const categoryName = async (id: string | null | undefined): Promise<string | null> =>
+    id
+      ? ((await db.query<{ name: string }>(`select name from product_categories where id=$1`, [id]))[0]?.name ?? null)
+      : null;
 
   app.get("/admin/me", (c) => c.json(c.get("actor")));
 
@@ -578,8 +600,46 @@ export function createApp(deps: AppDeps) {
         name: nameIn(200),
         vat: vatIn.nullable().optional(),
         odoo_partner_id: z.number().int().positive().nullable().optional(),
+        // only a company with a VAT number needs an address (a standard invoice); the country and region are filled in by themselves
+        phone: z.string().trim().max(30).nullable().optional(),
+        street: z.string().trim().max(120).nullable().optional(),
+        district: z.string().trim().max(80).nullable().optional(),
+        city: z.string().trim().max(60).nullable().optional(),
+        zip: z.string().trim().max(10).nullable().optional(),
+        building_number: z
+          .string()
+          .trim()
+          .regex(/^\d{4}$/, "The building number is 4 digits.")
+          .nullable()
+          .optional(),
       }),
     );
+    const odoo = odooPort();
+    if (odoo && !b.odoo_partner_id) {
+      // a name or VAT already in the platform is refused before anything is sent to Odoo
+      await assertNameFree(db, "customers", b.name, "customer");
+      if (b.vat) {
+        const dup = await db.query(`select name from customers where vat=$1 limit 1`, [b.vat]);
+        if (dup.length)
+          throw new HttpError(409, "vat_taken", `The customer "${dup[0].name}" already has this VAT number.`);
+      }
+      b.odoo_partner_id = await viaOdoo(async () => {
+        const known = await odoo.findPartner({ vat: b.vat, name: b.name });
+        return (
+          known ??
+          (await odoo.createPartner({
+            name: b.name,
+            vat: b.vat,
+            phone: b.phone,
+            street: b.street,
+            district: b.district,
+            city: b.city,
+            zip: b.zip,
+            buildingNumber: b.building_number,
+          }))
+        );
+      });
+    }
     try {
       const out = await db.tx(async (t) => {
         await assertNameFree(t, "customers", b.name, "customer");
@@ -613,6 +673,17 @@ export function createApp(deps: AppDeps) {
         status: z.enum(["active", "frozen"]).optional(),
       }),
     );
+    const odoo = odooPort();
+    if (odoo && (b.name !== undefined || b.vat !== undefined)) {
+      const [cur] = await db.query<{ odoo_partner_id: string | null }>(
+        `select odoo_partner_id from customers where id=$1`,
+        [id],
+      );
+      if (cur?.odoo_partner_id) {
+        const partnerId = Number(cur.odoo_partner_id);
+        await viaOdoo(() => odoo.updatePartner(partnerId, { name: b.name, vat: b.vat }));
+      }
+    }
     const out = await db.tx(async (t) => {
       const [before] = await t.query(`select id, name, vat, status from customers where id=$1 for update`, [id]);
       if (!before) throw new HttpError(404, "not_found", "Customer not found.");
@@ -636,6 +707,10 @@ export function createApp(deps: AppDeps) {
   app.delete("/admin/customers/:id", async (c) => {
     const actor = c.get("actor");
     const id = uuid.parse(c.req.param("id"));
+    const [odooRef] = await db.query<{ odoo_partner_id: string | null }>(
+      `select odoo_partner_id from customers where id=$1`,
+      [id],
+    );
     await db.tx(async (t) => {
       let row: Record<string, unknown> | undefined;
       try {
@@ -652,7 +727,16 @@ export function createApp(deps: AppDeps) {
       if (!row) throw new HttpError(404, "not_found", "Customer not found.");
       await audit(t, actor, "delete", "customer", id, row, null);
     });
-    return c.json({ ok: true });
+    // Odoo keeps the record (it may have history there), so it is archived; if that fails the delete still stands
+    let odooNote: string | undefined;
+    if (odooRef?.odoo_partner_id && odooPort()) {
+      try {
+        await odooPort()?.archivePartner(Number(odooRef.odoo_partner_id));
+      } catch (e) {
+        odooNote = `Deleted here, but Odoo could not archive it: ${plainReason(e instanceof Error ? e.message : String(e))}`;
+      }
+    }
+    return c.json({ ok: true, ...(odooNote ? { odoo: odooNote } : {}) });
   });
 
   app.get("/admin/salesmen/:id/customers", async (c) =>
@@ -770,6 +854,16 @@ export function createApp(deps: AppDeps) {
         odoo_product_id: z.number().int().positive().nullable().optional(),
       }),
     );
+    const odoo = odooPort();
+    if (odoo && !b.odoo_product_id) {
+      await assertNameFree(db, "products", b.name, "product");
+      const category = await categoryName(b.category_id);
+      b.odoo_product_id = await viaOdoo(
+        async () =>
+          (await odoo.findProduct(b.name)) ??
+          (await odoo.createProduct({ name: b.name, price: b.max_price ?? 0, category })),
+      );
+    }
     try {
       const out = await db.tx(async (t) => {
         await assertNameFree(t, "products", b.name, "product");
@@ -805,6 +899,24 @@ export function createApp(deps: AppDeps) {
         status: z.enum(["active", "frozen"]).optional(),
       }),
     );
+    const odoo = odooPort();
+    if (odoo && (b.name !== undefined || b.max_price !== undefined || b.category_id !== undefined)) {
+      const [cur] = await db.query<{ odoo_product_id: string | null }>(
+        `select odoo_product_id from products where id=$1`,
+        [id],
+      );
+      if (cur?.odoo_product_id) {
+        const productId = Number(cur.odoo_product_id);
+        const category = b.category_id !== undefined ? await categoryName(b.category_id) : undefined;
+        await viaOdoo(() =>
+          odoo.updateProduct(productId, {
+            name: b.name,
+            price: b.max_price === undefined ? undefined : (b.max_price ?? 0),
+            category,
+          }),
+        );
+      }
+    }
     const out = await db.tx(async (t) => {
       const [before] = await t.query<{ max_price: string | null }>(
         `select id, name, category_id, max_price, status from products where id=$1 for update`,
@@ -882,12 +994,24 @@ export function createApp(deps: AppDeps) {
   app.delete("/admin/products/:id", async (c) => {
     const actor = c.get("actor");
     const id = uuid.parse(c.req.param("id"));
+    const [odooRef] = await db.query<{ odoo_product_id: string | null }>(
+      `select odoo_product_id from products where id=$1`,
+      [id],
+    );
     await db.tx(async (t) => {
       const [row] = await t.query(`delete from products where id=$1 returning id, name`, [id]);
       if (!row) throw new HttpError(404, "not_found", "Product not found.");
       await audit(t, actor, "delete", "product", id, row, null);
     });
-    return c.json({ ok: true });
+    let odooNote: string | undefined;
+    if (odooRef?.odoo_product_id && odooPort()) {
+      try {
+        await odooPort()?.archiveProduct(Number(odooRef.odoo_product_id));
+      } catch (e) {
+        odooNote = `Deleted here, but Odoo could not archive it: ${plainReason(e instanceof Error ? e.message : String(e))}`;
+      }
+    }
+    return c.json({ ok: true, ...(odooNote ? { odoo: odooNote } : {}) });
   });
 
   app.get("/admin/products/:id/history", async (c) =>
@@ -917,6 +1041,33 @@ export function createApp(deps: AppDeps) {
           .max(1000),
       }),
     );
+    // Odoo first: each row is found or created there (with the price as its sales price), so a failure saves nothing
+    const odooIds = new Map<string, number>();
+    const odoo = odooPort();
+    if (odoo) {
+      for (const r of b.rows) {
+        const name = r.name.trim();
+        const [cur] = await db.query<{ odoo_product_id: string | null }>(
+          `select odoo_product_id from products where lower(name)=lower($1)`,
+          [name],
+        );
+        const category = r.category?.trim() ? r.category.trim().replace(/\s+/g, " ") : null;
+        const id = await viaOdoo(async () => {
+          if (cur?.odoo_product_id) {
+            const known = Number(cur.odoo_product_id);
+            await odoo.updateProduct(known, {
+              ...(r.max_price !== undefined ? { price: r.max_price ?? 0 } : {}),
+              ...(category ? { category } : {}),
+            });
+            return known;
+          }
+          return (
+            (await odoo.findProduct(name)) ?? (await odoo.createProduct({ name, price: r.max_price ?? 0, category }))
+          );
+        });
+        odooIds.set(name.toLowerCase(), id);
+      }
+    }
     const res = await db.tx(async (t) => {
       let created = 0,
         updated = 0,
@@ -942,8 +1093,8 @@ export function createApp(deps: AppDeps) {
         );
         if (!existing) {
           const [row] = await t.query<{ id: string }>(
-            `insert into products (name, category_id, max_price) values ($1,$2,$3) returning id`,
-            [r.name.trim(), categoryId, r.max_price ?? null],
+            `insert into products (name, category_id, max_price, odoo_product_id) values ($1,$2,$3,$4) returning id`,
+            [r.name.trim(), categoryId, r.max_price ?? null, odooIds.get(r.name.trim().toLowerCase()) ?? null],
           );
           if (r.max_price != null)
             await t.query(
@@ -953,8 +1104,14 @@ export function createApp(deps: AppDeps) {
           created++;
         } else {
           await t.query(
-            `update products set category_id=coalesce($2,category_id), max_price=case when $3::boolean then $4 else max_price end where id=$1`,
-            [existing.id, categoryId, r.max_price !== undefined, r.max_price ?? null],
+            `update products set category_id=coalesce($2,category_id), max_price=case when $3::boolean then $4 else max_price end, odoo_product_id=coalesce(odoo_product_id,$5) where id=$1`,
+            [
+              existing.id,
+              categoryId,
+              r.max_price !== undefined,
+              r.max_price ?? null,
+              odooIds.get(r.name.trim().toLowerCase()) ?? null,
+            ],
           );
           if (
             r.max_price !== undefined &&
@@ -1025,13 +1182,63 @@ export function createApp(deps: AppDeps) {
         result.products.unmatched.push(r.name);
       }
     }
+    // what already exists in Odoo but not here is brought in, so Odoo's own records appear without typing them again
+    const imported = { customers: 0, products: 0 };
+    const haveCustomers = new Set(
+      (
+        await db.query<{ n: string }>(`select odoo_partner_id::text n from customers where odoo_partner_id is not null`)
+      ).map((r) => r.n),
+    );
+    for (const oc of await odoo.listCustomers()) {
+      if (haveCustomers.has(String(oc.id))) continue;
+      const [clash] = await db.query(`select 1 from customers where lower(name)=lower($1)`, [oc.name]);
+      if (clash) continue;
+      await db.query(`insert into customers (name, vat, odoo_partner_id, synced_at) values ($1,$2,$3,now())`, [
+        oc.name,
+        oc.vat && /^3[0-9]{13}3$/.test(oc.vat) ? oc.vat : null,
+        oc.id,
+      ]);
+      imported.customers++;
+    }
+    const haveProducts = new Set(
+      (
+        await db.query<{ n: string }>(`select odoo_product_id::text n from products where odoo_product_id is not null`)
+      ).map((r) => r.n),
+    );
+    for (const op of await odoo.listProducts()) {
+      if (haveProducts.has(String(op.id))) continue;
+      const [clash] = await db.query(`select 1 from products where lower(name)=lower($1)`, [op.name]);
+      if (clash) continue;
+      let categoryId: string | null = null;
+      if (op.category && op.category !== "All") {
+        const [found] = await db.query<{ id: string }>(
+          `select id from product_categories where lower(name)=lower($1)`,
+          [op.category],
+        );
+        categoryId =
+          found?.id ??
+          (
+            await db.query<{ id: string }>(`insert into product_categories (name) values ($1) returning id`, [
+              op.category,
+            ])
+          )[0].id;
+      }
+      await db.query(`insert into products (name, category_id, max_price, odoo_product_id) values ($1,$2,$3,$4)`, [
+        op.name,
+        categoryId,
+        op.price > 0 ? op.price : null,
+        op.id,
+      ]);
+      imported.products++;
+    }
     await db.tx((t) =>
       audit(t, actor, "link_odoo", "odoo", null, null, {
         customers: result.customers.linked,
         products: result.products.linked,
+        imported,
       }),
     );
-    return c.json(result);
+    return c.json({ ...result, imported });
   });
 
   // Test mode only: adds the TEST customers, categories and products (idempotent) and gives every active salesman the customers.
@@ -1042,10 +1249,17 @@ export function createApp(deps: AppDeps) {
     const out = await db.tx(async (t) => {
       let customers = 0;
       let products = 0;
+      const odoo = odooPort();
       for (const name of SAMPLE_CUSTOMERS) {
         const [have] = await t.query(`select id from customers where lower(name)=lower($1)`, [name]);
         if (!have) {
-          await t.query(`insert into customers (name) values ($1)`, [name]);
+          // created in Odoo too (a name with no VAT is a simplified-invoice customer there)
+          const odooId = odoo
+            ? await viaOdoo(
+                async () => (await odoo.findPartner({ name })) ?? (await odoo.createPartner({ name, city: "Jeddah" })),
+              )
+            : null;
+          await t.query(`insert into customers (name, odoo_partner_id) values ($1,$2)`, [name, odooId]);
           customers++;
         }
       }

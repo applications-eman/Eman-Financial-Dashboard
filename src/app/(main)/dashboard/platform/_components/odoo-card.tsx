@@ -16,6 +16,7 @@ interface Status {
 interface LinkResult {
   customers: { linked: number; unmatched: string[] };
   products: { linked: number; unmatched: string[] };
+  imported?: { customers: number; products: number };
 }
 
 export function OdooCard() {
@@ -56,8 +57,8 @@ export function OdooCard() {
       ) : null}
       <div className="flex flex-col gap-1">
         <p className="text-muted-foreground text-sm">
-          Every customer and product must be linked to its Odoo record before it can be invoiced. Matching uses the VAT
-          number, then the exact name.
+          Customers and products you add here are created in Odoo at once. Press the button to also bring in what
+          already exists in Odoo (and link older entries by VAT number or exact name).
         </p>
         <Button
           className="w-fit"
@@ -65,13 +66,16 @@ export function OdooCard() {
           onClick={link}
           disabled={busy || !status?.configured || Boolean(status?.error)}
         >
-          Link customers and products to Odoo
+          Import and link from Odoo
         </Button>
       </div>
       {result ? (
         <div className="text-sm">
           <p>
             Customers linked: {result.customers.linked}. Products linked: {result.products.linked}.
+            {result.imported
+              ? ` Brought in from Odoo: ${result.imported.customers} customers, ${result.imported.products} products.`
+              : ""}
           </p>
           {[
             ...result.customers.unmatched.map((n) => `Customer: ${n}`),

@@ -8,6 +8,16 @@ export interface OdooLine {
   quantity: number;
   priceUnit: number;
 }
+export interface PartnerInput {
+  name: string;
+  vat?: string | null;
+  phone?: string | null;
+  street?: string | null;
+  district?: string | null;
+  city?: string | null;
+  zip?: string | null;
+  buildingNumber?: string | null;
+}
 export interface OdooMove {
   id: number;
   name: string | false;
@@ -51,6 +61,19 @@ export interface OdooPort {
   findPartner(i: { vat?: string | null; name: string }): Promise<number | null>;
   findProduct(name: string): Promise<number | null>;
   ping(): Promise<string>;
+
+  // ---- master data: the platform is where people add and change these; Odoo receives them at once
+  /** the customer's address fields are only needed for a company with a VAT number (a standard invoice) */
+  createPartner(i: PartnerInput): Promise<number>;
+  updatePartner(id: number, i: Partial<PartnerInput>): Promise<void>;
+  /** Odoo keeps a customer that has invoices, so it is archived, never deleted */
+  archivePartner(id: number): Promise<void>;
+  /** a goods product that can be sold, with the company's standard VAT and the price as its sales price */
+  createProduct(i: { name: string; price: number; category?: string | null }): Promise<number>;
+  updateProduct(id: number, i: { name?: string; price?: number; category?: string | null }): Promise<void>;
+  archiveProduct(id: number): Promise<void>;
+  listCustomers(): Promise<{ id: number; name: string; vat: string | null }[]>;
+  listProducts(): Promise<{ id: number; name: string; price: number; category: string | null }[]>;
   /** invoices of this journal that are posted but not cleared by ZATCA and older than the given minutes */
   listUncleared(journalId: number, olderThanMinutes: number): Promise<{ name: string; ref: string }[]>;
 }
@@ -393,6 +416,157 @@ export class Json2Odoo implements OdooPort {
     }
     const byName = await this.searchRead<{ id: number }>("res.partner", [["name", "=ilike", i.name]], ["id"], 2);
     return byName.length === 1 ? byName[0].id : null;
+  }
+
+  private defaultsCache: { country: number | false; state: number | false; tax: number | false } | null = null;
+  /** the company's country, region and standard sales VAT: these are what every new record gets, so nobody has to type them */
+  private async defaults() {
+    if (!this.defaultsCache) {
+      const [c] = await this.searchRead<{
+        country_id: [number, string] | false;
+        state_id: [number, string] | false;
+        account_sale_tax_id: [number, string] | false;
+      }>("res.company", [], ["country_id", "state_id", "account_sale_tax_id"], 1);
+      this.defaultsCache = {
+        country: c?.country_id ? c.country_id[0] : false,
+        state: c?.state_id ? c.state_id[0] : false,
+        tax: c?.account_sale_tax_id ? c.account_sale_tax_id[0] : false,
+      };
+    }
+    return this.defaultsCache;
+  }
+
+  private partnerVals(i: Partial<PartnerInput>): Record<string, unknown> {
+    // an empty value clears the field in Odoo (Odoo's way to say "nothing" is false)
+    const text = (x: string | null | undefined) => (x === null || x === "" ? false : x);
+    const fields: Record<string, string | null | undefined> = {
+      name: i.name,
+      vat: i.vat,
+      phone: i.phone,
+      street: i.street,
+      street2: i.district,
+      city: i.city,
+      zip: i.zip,
+      l10n_sa_edi_building_number: i.buildingNumber,
+    };
+    const v: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(fields)) if (x !== undefined) v[k] = text(x);
+    return v;
+  }
+
+  async createPartner(i: PartnerInput): Promise<number> {
+    const d = await this.defaults();
+    const [id] = await this.call<number[]>("res.partner", "create", {
+      vals_list: [
+        {
+          ...this.partnerVals(i),
+          is_company: Boolean(i.vat),
+          ...(d.country ? { country_id: d.country } : {}),
+          ...(d.state ? { state_id: d.state } : {}),
+        },
+      ],
+    });
+    return id;
+  }
+
+  async updatePartner(id: number, i: Partial<PartnerInput>): Promise<void> {
+    const vals = this.partnerVals(i);
+    if (Object.keys(vals).length > 0) await this.call("res.partner", "write", { ids: [id], vals });
+  }
+
+  async archivePartner(id: number): Promise<void> {
+    await this.call("res.partner", "write", { ids: [id], vals: { active: false } });
+  }
+
+  /** finds the product category by name, creating it when it is new */
+  private async categoryId(name: string): Promise<number> {
+    const found = await this.searchRead<{ id: number }>("product.category", [["name", "=ilike", name]], ["id"], 1);
+    if (found[0]) return found[0].id;
+    const [id] = await this.call<number[]>("product.category", "create", { vals_list: [{ name }] });
+    return id;
+  }
+
+  async createProduct(i: { name: string; price: number; category?: string | null }): Promise<number> {
+    const d = await this.defaults();
+    const [tmpl] = await this.call<number[]>("product.template", "create", {
+      vals_list: [
+        {
+          name: i.name,
+          type: "consu",
+          sale_ok: true,
+          list_price: i.price,
+          ...(i.category ? { categ_id: await this.categoryId(i.category) } : {}),
+          ...(d.tax ? { taxes_id: [[6, 0, [d.tax]]] } : {}),
+        },
+      ],
+    });
+    const variants = await this.searchRead<{ id: number }>(
+      "product.product",
+      [["product_tmpl_id", "=", tmpl]],
+      ["id"],
+      1,
+    );
+    if (!variants[0]) throw new OdooError("Odoo created the product but returned no variant.", 500, false);
+    return variants[0].id;
+  }
+
+  private async templateOf(productId: number): Promise<number> {
+    const [p] = await this.call<{ product_tmpl_id: [number, string] }[]>("product.product", "read", {
+      ids: [productId],
+      fields: ["product_tmpl_id"],
+    });
+    if (!p) throw new OdooError(`Product ${productId} not found in Odoo.`, 404, false);
+    return p.product_tmpl_id[0];
+  }
+
+  async updateProduct(id: number, i: { name?: string; price?: number; category?: string | null }): Promise<void> {
+    const vals: Record<string, unknown> = {};
+    if (i.name !== undefined) vals.name = i.name;
+    if (i.price !== undefined) vals.list_price = i.price;
+    if (i.category !== undefined) vals.categ_id = i.category ? await this.categoryId(i.category) : false;
+    if (Object.keys(vals).length > 0)
+      await this.call("product.template", "write", { ids: [await this.templateOf(id)], vals });
+  }
+
+  async archiveProduct(id: number): Promise<void> {
+    await this.call("product.template", "write", { ids: [await this.templateOf(id)], vals: { active: false } });
+  }
+
+  async listCustomers() {
+    const rows = await this.searchRead<{ id: number; name: string; vat: string | false }>(
+      "res.partner",
+      [
+        ["customer_rank", ">", 0],
+        ["active", "=", true],
+        ["parent_id", "=", false],
+      ],
+      ["id", "name", "vat"],
+      2000,
+    );
+    return rows.map((r) => ({ id: r.id, name: r.name, vat: r.vat || null }));
+  }
+
+  async listProducts() {
+    const rows = await this.searchRead<{
+      id: number;
+      name: string;
+      list_price: number;
+      categ_id: [number, string] | false;
+    }>(
+      "product.product",
+      [
+        ["sale_ok", "=", true],
+        ["active", "=", true],
+      ],
+      ["id", "name", "list_price", "categ_id"],
+      2000,
+    );
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      price: Number(r.list_price),
+      category: r.categ_id ? r.categ_id[1] : null,
+    }));
   }
 
   async findProduct(name: string): Promise<number | null> {
