@@ -854,3 +854,50 @@ test("worker: when WhatsApp refuses the PDF the salesman is told why and gets a 
   assert.match(note.text, /could not be sent to you \(WhatsApp did not accept the file\)/);
   assert.deepEqual((note.extra as { id: string }[])[0].id, `pdf:${r.ref_code}`);
 });
+
+test("flow: more than 20 customers or products switch from round ticks to a drop-down, and the answer still works", async () => {
+  const w = await world();
+  const t = await session(w);
+  for (let i = 0; i < 24; i++) {
+    const [c] = await w.db.query(`insert into customers (name, odoo_partner_id) values ($1, $2) returning id`, [
+      `Customer ${String(i).padStart(2, "0")}`,
+      100 + i,
+    ]);
+    await w.db.query(`insert into salesman_customers (salesman_id, customer_id) values ($1,$2)`, [w.salesman, c.id]);
+    await w.db.query(`insert into products (name, category_id, max_price, odoo_product_id) values ($1, $2, 9, $3)`, [
+      `Bulk ${String(i).padStart(2, "0")}`,
+      w.category,
+      200 + i,
+    ]);
+  }
+  const init = await handleFlow(w.db, { action: "INIT", flow_token: t });
+  assert.equal(init.data.use_ticks, false);
+  assert.equal(init.data.use_list, true);
+  assert.equal((init.data.customers as unknown[]).length, 25);
+  // the drop-down answers under its own name
+  const [first] = init.data.customers as { id: string }[];
+  const shop = await handleFlow(w.db, {
+    action: "data_exchange",
+    flow_token: t,
+    data: { step: "select_customer", customer: "", customer_pick: first.id },
+  });
+  assert.equal(shop.screen, "ITEMS");
+  const cat = await handleFlow(w.db, {
+    action: "data_exchange",
+    screen: "ITEMS",
+    flow_token: t,
+    data: { step: "select_category", category: w.category },
+  });
+  assert.equal(cat.data.use_list, true);
+  assert.equal((cat.data.products as unknown[]).length, 25);
+  const [p] = cat.data.products as { id: string }[];
+  const added = await handleFlow(w.db, {
+    action: "data_exchange",
+    screen: "ITEMS",
+    flow_token: t,
+    data: { step: "add_item", category: w.category, product: "", product_pick: p.id, qty: "1", price: "1" },
+  });
+  assert.equal(added.screen, "ITEMS");
+  assert.equal(added.data.error_message, undefined);
+  assert.match(String(added.data.cart_text), /1\./);
+});

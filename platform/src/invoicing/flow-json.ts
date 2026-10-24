@@ -15,6 +15,7 @@ const optionArray = (example: unknown[]) => ({
   __example__: example,
 });
 const str = (example: string) => ({ type: "string", __example__: example });
+const bool = (example: boolean) => ({ type: "boolean", __example__: example });
 
 export function buildFlowJson() {
   return {
@@ -26,7 +27,11 @@ export function buildFlowJson() {
         id: "CUSTOMER",
         title: "Customer",
         refresh_on_back: true,
-        data: { customers: optionArray([{ id: "c1", title: "Al Noor Supermarket" }]) },
+        data: {
+          customers: optionArray([{ id: "c1", title: "Al Noor Supermarket" }]),
+          use_ticks: bool(true),
+          use_list: bool(false),
+        },
         layout: {
           type: "SingleColumnLayout",
           children: [
@@ -37,13 +42,26 @@ export function buildFlowJson() {
               label: "Customer",
               name: "customer",
               required: true,
+              visible: "${data.use_ticks}",
+              "data-source": "${data.customers}",
+            },
+            {
+              type: "Dropdown",
+              label: "Customer",
+              name: "customer_pick",
+              required: true,
+              visible: "${data.use_list}",
               "data-source": "${data.customers}",
             },
             caption("Choose from your assigned customers"),
             {
               type: "Footer",
               label: "Next",
-              "on-click-action": dataExchange({ step: "select_customer", customer: "${form.customer}" }),
+              "on-click-action": dataExchange({
+                step: "select_customer",
+                customer: "${form.customer}",
+                customer_pick: "${form.customer_pick}",
+              }),
             },
           ],
         },
@@ -56,6 +74,8 @@ export function buildFlowJson() {
           categories: optionArray([{ id: "k1", title: "Shami" }]),
           products: optionArray([{ id: "p1", title: "SHAMI - 5", description: "Maximum 4.50 before VAT" }]),
           selected: str("p1"),
+          use_ticks: bool(true),
+          use_list: bool(false),
           cart_text: str("Your cart is empty."),
         },
         layout: {
@@ -81,6 +101,7 @@ export function buildFlowJson() {
               label: "Product",
               name: "product",
               required: true,
+              visible: "${data.use_ticks}",
               "data-source": "${data.products}",
               "init-value": "${data.selected}",
               "on-select-action": dataExchange({
@@ -88,6 +109,14 @@ export function buildFlowJson() {
                 category: "${form.category}",
                 product: "${form.product}",
               }),
+            },
+            {
+              type: "Dropdown",
+              label: "Product",
+              name: "product_pick",
+              required: true,
+              visible: "${data.use_list}",
+              "data-source": "${data.products}",
             },
             {
               type: "EmbeddedLink",
@@ -103,6 +132,7 @@ export function buildFlowJson() {
                 step: "add_item",
                 category: "${form.category}",
                 product: "${form.product}",
+                product_pick: "${form.product_pick}",
                 qty: "${form.qty}",
                 price: "${form.price}",
               }),

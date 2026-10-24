@@ -34,6 +34,14 @@
               "title": "Al Noor Supermarket"
             }
           ]
+        },
+        "use_ticks": {
+          "type": "boolean",
+          "__example__": true
+        },
+        "use_list": {
+          "type": "boolean",
+          "__example__": false
         }
       },
       "layout": {
@@ -52,6 +60,15 @@
             "label": "Customer",
             "name": "customer",
             "required": true,
+            "visible": "${data.use_ticks}",
+            "data-source": "${data.customers}"
+          },
+          {
+            "type": "Dropdown",
+            "label": "Customer",
+            "name": "customer_pick",
+            "required": true,
+            "visible": "${data.use_list}",
             "data-source": "${data.customers}"
           },
           {
@@ -65,7 +82,8 @@
               "name": "data_exchange",
               "payload": {
                 "step": "select_customer",
-                "customer": "${form.customer}"
+                "customer": "${form.customer}",
+                "customer_pick": "${form.customer_pick}"
               }
             }
           }
@@ -128,6 +146,14 @@
           "type": "string",
           "__example__": "p1"
         },
+        "use_ticks": {
+          "type": "boolean",
+          "__example__": true
+        },
+        "use_list": {
+          "type": "boolean",
+          "__example__": false
+        },
         "cart_text": {
           "type": "string",
           "__example__": "Your cart is empty."
@@ -173,6 +199,7 @@
             "label": "Product",
             "name": "product",
             "required": true,
+            "visible": "${data.use_ticks}",
             "data-source": "${data.products}",
             "init-value": "${data.selected}",
             "on-select-action": {
@@ -183,6 +210,14 @@
                 "product": "${form.product}"
               }
             }
+          },
+          {
+            "type": "Dropdown",
+            "label": "Product",
+            "name": "product_pick",
+            "required": true,
+            "visible": "${data.use_list}",
+            "data-source": "${data.products}"
           },
           {
             "type": "EmbeddedLink",
@@ -218,6 +253,7 @@
                 "step": "add_item",
                 "category": "${form.category}",
                 "product": "${form.product}",
+                "product_pick": "${form.product_pick}",
                 "qty": "${form.qty}",
                 "price": "${form.price}"
               }

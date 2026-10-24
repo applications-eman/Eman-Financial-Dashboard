@@ -19,7 +19,7 @@ export interface FlowResponse {
 }
 
 const MAX_OPTIONS = 200;
-/** WhatsApp shows at most 20 round ticks in one list. */
+/** WhatsApp shows at most 20 round ticks in one list; longer lists use a drop-down (up to 200 entries). */
 const MAX_TICKS = 20;
 const cut = (s: string, n = 30) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 const err = (code: MsgCode, vars?: Record<string, string | number>) => msg(code, vars);
@@ -47,10 +47,10 @@ const orPlaceholder = (opts: { id: string; title: string; description?: string }
 async function customerOptions(db: Db, salesmanId: string): Promise<Opt[]> {
   const rows = await db.query<{ id: string; name: string }>(
     `select c.id, c.name from salesman_customers sc join customers c on c.id = sc.customer_id
-      where sc.salesman_id = $1 and c.status = 'active' and c.odoo_partner_id is not null order by lower(c.name) limit ${MAX_TICKS + 1}`,
+      where sc.salesman_id = $1 and c.status = 'active' and c.odoo_partner_id is not null order by lower(c.name) limit ${MAX_OPTIONS}`,
     [salesmanId],
   );
-  return rows.slice(0, MAX_TICKS).map((r) => ({
+  return rows.map((r) => ({
     id: r.id,
     title: cut(r.name),
     ...(r.name.length > 30 ? { description: cut(r.name, 300) } : {}),
@@ -70,7 +70,7 @@ async function categoryOptions(db: Db): Promise<Opt[]> {
 async function productOptions(db: Db, categoryId: string | null, inCart: string[] = []): Promise<Opt[]> {
   if (!categoryId) return [];
   const rows = await db.query<{ id: string; name: string; max_price: string }>(
-    `select id, name, max_price from products where category_id = $1 and status = 'active' and max_price is not null and odoo_product_id is not null and not (id::text = any($2::text[])) order by lower(name) limit ${MAX_TICKS}`,
+    `select id, name, max_price from products where category_id = $1 and status = 'active' and max_price is not null and odoo_product_id is not null and not (id::text = any($2::text[])) order by lower(name) limit ${MAX_OPTIONS}`,
     [categoryId, inCart],
   );
   return rows.map((r) => ({
@@ -103,7 +103,7 @@ async function cartText(db: Db, lines: SessionLine[]): Promise<string> {
   return `${rows.join("\n")}\n\nBefore VAT ${money(t.subtotal)}. VAT ${money(t.vat)}. Total ${money(t.total)}.`;
 }
 
-/** The tick list holds 20 customers; say so when a salesman has more. */
+/** More than 200 customers cannot be listed at all; say so instead of silently cutting the list. */
 async function tooManyCustomers(db: Db, s: Session | null): Promise<string | undefined> {
   if (!s) return undefined;
   const [r] = await db.query<{ n: number }>(
@@ -111,19 +111,22 @@ async function tooManyCustomers(db: Db, s: Session | null): Promise<string | und
       where sc.salesman_id = $1 and c.status = 'active' and c.odoo_partner_id is not null`,
     [s.salesman_id],
   );
-  return r && r.n > MAX_TICKS
-    ? `Only the first ${MAX_TICKS} of your ${r.n} customers can be shown. Please tell the office.`
+  return r && r.n > MAX_OPTIONS
+    ? `Only the first ${MAX_OPTIONS} of your ${r.n} customers can be shown. Please tell the office.`
     : undefined;
 }
 
 async function customerScreen(db: Db, s: Session | null, error?: string): Promise<FlowResponse> {
   const options = s ? await customerOptions(db, s.salesman_id) : [];
-  const note = options.length >= MAX_TICKS ? await tooManyCustomers(db, s) : undefined;
+  const note = options.length >= MAX_OPTIONS ? await tooManyCustomers(db, s) : undefined;
   const shown = error ?? note;
+  const ticks = options.length <= MAX_TICKS;
   return {
     screen: "CUSTOMER",
     data: {
       customers: orPlaceholder(options, "No customers available"),
+      use_ticks: ticks,
+      use_list: !ticks,
       ...(shown ? { error_message: shown } : {}),
     },
   };
@@ -140,8 +143,10 @@ async function itemsScreen(
     category,
     s.lines.map((l) => l.product_id),
   );
-  // once a product is chosen, the others leave the list so quantity and price sit right under it
-  const chosen = free.find((p) => p.id === o.selected);
+  // up to 20 products show as round ticks; longer lists use a drop-down
+  const ticks = free.length <= MAX_TICKS;
+  // once a product is chosen (tick mode), the others leave the list so quantity and price sit right under it
+  const chosen = ticks ? free.find((p) => p.id === o.selected) : undefined;
   return {
     screen: "ITEMS",
     data: {
@@ -151,6 +156,8 @@ async function itemsScreen(
         category ? "All products are in the cart" : "Choose a category first",
       ),
       selected: chosen?.id ?? "",
+      use_ticks: ticks,
+      use_list: !ticks,
       cart_text: await cartText(db, s.lines),
       ...(o.error ? { error_message: o.error } : {}),
     },
@@ -205,10 +212,10 @@ async function save(db: Db, token: string, patch: { customer_id?: string | null;
 export function stepOf(screen: string | undefined, d: Record<string, unknown>): string {
   const named = String(d.step ?? d.action ?? "");
   if (named) return named;
-  if (screen === "CUSTOMER") return "customer" in d ? "select_customer" : "";
+  if (screen === "CUSTOMER") return "customer" in d || "customer_pick" in d ? "select_customer" : "";
   if (screen === "REVIEW") return "confirm";
   if (screen === "ITEMS") {
-    if (["product", "qty", "price"].some((k) => k in d)) return "add_item";
+    if (["product", "product_pick", "qty", "price"].some((k) => k in d)) return "add_item";
     if ("category" in d) return "select_category";
   }
   return "";
@@ -216,6 +223,8 @@ export function stepOf(screen: string | undefined, d: Record<string, unknown>): 
 
 /** Chips arrive as a list with the one chosen id; a plain value is accepted too. */
 const firstOf = (v: unknown): string => String((Array.isArray(v) ? v[0] : v) ?? "");
+/** The answer of whichever of the two lists (round ticks or drop-down) is on screen. */
+const pick = (d: Record<string, unknown>, name: string): string => firstOf(d[name]) || firstOf(d[`${name}_pick`]);
 
 export async function handleFlow(db: Db, body: FlowBody): Promise<FlowResponse> {
   if (body.action === "ping") return { data: { status: "active" } };
@@ -255,7 +264,7 @@ export async function handleFlow(db: Db, body: FlowBody): Promise<FlowResponse> 
 
   switch (stepOf(body.screen, d)) {
     case "select_customer": {
-      const id = String(d.customer ?? "");
+      const id = pick(d, "customer");
       const ok = (await customerOptions(db, s.salesman_id)).some((o) => o.id === id);
       if (!ok) return customerScreen(db, s, err("M20"));
       await save(db, token, { customer_id: id });
@@ -264,7 +273,7 @@ export async function handleFlow(db: Db, body: FlowBody): Promise<FlowResponse> 
     case "select_category":
       return itemsScreen(db, s, { category: firstOf(d.category) || null });
     case "select_product":
-      return itemsScreen(db, s, { category: firstOf(d.category) || null, selected: firstOf(d.product) || null });
+      return itemsScreen(db, s, { category: firstOf(d.category) || null, selected: pick(d, "product") || null });
     case "add_item":
       return addItem(db, s, token, d);
     case "open_cart":
@@ -295,7 +304,7 @@ async function checkLine(
   db: Db,
   d: Record<string, unknown>,
 ): Promise<{ ok: true; line: Checked } | { ok: false; error: string }> {
-  const productId = firstOf(d.product);
+  const productId = pick(d, "product");
   if (!productId) return { ok: false, error: "Please choose a product." };
   const qty = parseAmount(d.qty);
   if (!(qty > 0) || qty > 100000) return { ok: false, error: err("M05") };
@@ -317,7 +326,7 @@ async function checkLine(
 
 async function addItem(db: Db, s: Session, token: string, d: Record<string, unknown>): Promise<FlowResponse> {
   const category = firstOf(d.category) || null;
-  const bad = (error: string) => itemsScreen(db, s, { category, error, selected: firstOf(d.product) || null });
+  const bad = (error: string) => itemsScreen(db, s, { category, error, selected: pick(d, "product") || null });
   const checked = await checkLine(db, d);
   if (!checked.ok) return bad(checked.error);
   if (s.lines.some((l) => l.product_id === checked.line.productId))
