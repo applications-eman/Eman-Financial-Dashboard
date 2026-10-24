@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { platform } from "@/lib/platform-api";
 
+import { HealthCard } from "./health-card";
 import { OdooCard } from "./odoo-card";
 import { change } from "./use-platform";
 
@@ -52,6 +53,7 @@ export function SettingsTab() {
 
   return (
     <div className="flex max-w-xl flex-col gap-5">
+      <HealthCard />
       <OdooCard />
       <div className="flex items-start justify-between gap-4 rounded-lg border border-amber-500/50 p-3">
         <div className="space-y-1">
@@ -80,6 +82,13 @@ export function SettingsTab() {
       {NUMBER_FIELDS.map((f) => (
         <NumberSetting key={f.key} field={f} value={values[f.key]} onSave={(v) => save(f.key, v)} />
       ))}
+      <DateSetting
+        id="odoo_key_expires_on"
+        label="Odoo API key expires on"
+        hint="Enter the date Odoo shows for the key. The platform warns 14 days before and sends an alert."
+        value={values.odoo_key_expires_on}
+        onSave={(v) => save("odoo_key_expires_on", v)}
+      />
     </div>
   );
 }
@@ -113,6 +122,35 @@ function NumberSetting({
         </Button>
       </div>
       {field.hint ? <p className="text-muted-foreground text-xs">{field.hint}</p> : null}
+    </div>
+  );
+}
+
+function DateSetting({
+  id,
+  label,
+  hint,
+  value,
+  onSave,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  value: unknown;
+  onSave: (v: string) => void;
+}) {
+  const [v, setV] = useState(typeof value === "string" ? value : "");
+  const valid = /^\d{4}-\d{2}-\d{2}$/.test(v);
+  return (
+    <div className="space-y-1">
+      <Label htmlFor={id}>{label}</Label>
+      <div className="flex gap-2">
+        <Input id={id} dir="ltr" type="date" className="max-w-44" value={v} onChange={(e) => setV(e.target.value)} />
+        <Button variant="outline" disabled={!valid || value === v} onClick={() => onSave(v)}>
+          Save
+        </Button>
+      </div>
+      <p className="text-muted-foreground text-xs">{hint}</p>
     </div>
   );
 }

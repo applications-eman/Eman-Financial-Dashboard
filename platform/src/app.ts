@@ -5,7 +5,9 @@ import { z } from "zod";
 import { type Actor, type AuthCfg, actorFor, canDecideApprovals, canWrite, verifyToken } from "./auth.ts";
 import type { Db } from "./db.ts";
 import { msg } from "./invoicing/messages.ts";
+import { queueHealth } from "./invoicing/ops.ts";
 import { type InvoicingDeps, mountInvoicing } from "./invoicing/routes.ts";
+import { makeLimiter } from "./ratelimit.ts";
 import { isSafeTargetUrl } from "./ssrf.ts";
 import { randomBytes } from "node:crypto";
 
@@ -141,8 +143,12 @@ export function createApp(deps: AppDeps) {
   });
 
   // ---- sign-in and permission for everything under /admin
+  const adminLimit = makeLimiter(300, 60_000);
   app.use("/admin/*", async (c, next) => {
     if (c.req.method === "OPTIONS") return next();
+    // 300 calls a minute per caller: far above real use of the screens
+    const caller = (c.req.header("x-forwarded-for") ?? "local").split(",")[0].trim();
+    if (!adminLimit(caller)) throw new HttpError(429, "too_many_requests", "Too many requests. Please wait a minute.");
     const token = (c.req.header("authorization") ?? "").replace(/^Bearer /i, "");
     const claims = token ? await verifyToken(token, deps.auth) : null;
     if (!claims) throw new HttpError(401, "unauthorized", "Please sign in again.");
@@ -1072,6 +1078,13 @@ export function createApp(deps: AppDeps) {
     if (phone && deps.invoicing) await deps.invoicing.wa.sendText(phone, msg(decision === "approved" ? "M30" : "M29"));
     deps.invoicing?.kick();
     return c.json({ ok: true });
+  });
+
+  // ================================================================ health
+  app.get("/admin/health", async (c) => {
+    if (!deps.invoicing)
+      return c.json({ ok: false, problems: [deps.invoicingStatus ?? "Invoicing is off."], info: [], counts: null });
+    return c.json(await queueHealth(db, deps.invoicing.odoo, { journalId: deps.invoicing.journalId }));
   });
 
   // ================================================================ settings and audit

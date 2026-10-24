@@ -963,3 +963,53 @@ test("ops: the sweep retries what failed for a passing reason, at most 3 times, 
   await fail("clearance_unconfirmed");
   assert.equal(await sweepStuck(w.db), 0, "three tries are the limit");
 });
+
+test("load: 60 invoices from 12 salesmen are each issued exactly once, in order, within a minute", async () => {
+  const w = await world();
+  const people: { id: string; customer: string }[] = [{ id: w.salesman, customer: w.customer }];
+  for (let i = 1; i < 12; i++) {
+    const phone = `96650000${String(100 + i)}`;
+    await w.db.query(`insert into wa_numbers (phone, target_id) values ($1,'invoicing') on conflict do nothing`, [
+      phone,
+    ]);
+    const [s] = await w.db.query(
+      `insert into salesmen (code, name, phone, status) values ($1,$2,$3,'active') returning id`,
+      [`S-${i}`, `Salesman ${i}`, phone],
+    );
+    const [c] = await w.db.query(`insert into customers (name, odoo_partner_id) values ($1,$2) returning id`, [
+      `Load Customer ${i}`,
+      300 + i,
+    ]);
+    await w.db.query(`insert into salesman_customers (salesman_id, customer_id) values ($1,$2)`, [s.id, c.id]);
+    people.push({ id: s.id, customer: c.id });
+  }
+  const started = Date.now();
+  for (let n = 0; n < 60; n++) {
+    const p = people[n % people.length];
+    const token = `load-${n}`;
+    await w.db.query(
+      `insert into flow_sessions (token, salesman_id, expires_at) values ($1,$2, now() + interval '30 minutes')`,
+      [token, p.id],
+    );
+    await handleFlow(w.db, {
+      action: "data_exchange",
+      flow_token: token,
+      data: { step: "select_customer", customer: p.customer },
+    });
+    // each invoice differs, so the duplicate rule does not apply
+    await addToCart(w.db, token, { category: w.category, product: w.product, qty: String(n + 1), price: "4" });
+    await handleFlow(w.db, { action: "data_exchange", flow_token: token, data: { step: "confirm" } });
+  }
+  const queuedCount = (await w.db.query(`select count(*)::int n from invoice_requests where status='queued'`))[0].n;
+  assert.equal(queuedCount, 60);
+  let handled = 0;
+  for (let i = 0; i < 70 && handled < 60; i++) handled += await drain(w.worker);
+  assert.equal(handled, 60);
+  const [done] = await w.db.query(
+    `select count(*) filter (where status='cleared')::int cleared, count(distinct odoo_move_id)::int moves from invoice_requests`,
+  );
+  assert.equal(done.cleared, 60);
+  assert.equal(done.moves, 60, "one Odoo invoice per request");
+  assert.equal(w.odoo.moves.length, 60);
+  assert.ok(Date.now() - started < 60_000, "the rehearsal itself must stay fast");
+});
