@@ -11,6 +11,21 @@ export function loadLogo(): string | null {
   return null;
 }
 
+/** The logo as a banner (the picture is 420 x 297, so the height follows the width). Nothing is added when there is no logo file. */
+const banner = (logo: string | null, width: number) =>
+  logo
+    ? [
+        {
+          type: "Image",
+          src: logo,
+          width,
+          height: Math.round((width * 297) / 420),
+          "scale-type": "contain",
+          "alt-text": "Eman Bakery, taste of tradition since 2007",
+        },
+      ]
+    : [];
+
 const heading = (text: string) => ({ type: "TextHeading", text });
 const body = (text: string) => ({ type: "TextBody", text });
 const subheading = (text: string) => ({ type: "TextSubheading", text });
@@ -110,6 +125,7 @@ export function buildFlowJson(logo: string | null = loadLogo()) {
         layout: {
           type: "SingleColumnLayout",
           children: [
+            ...banner(logo, 150),
             subheading("Step 2 of 3 • Add products"),
             {
               type: "EmbeddedLink",
@@ -177,6 +193,7 @@ export function buildFlowJson(logo: string | null = loadLogo()) {
         layout: {
           type: "SingleColumnLayout",
           children: [
+            ...banner(logo, 150),
             subheading("Step 3 of 3 • Review and send"),
             body("${data.review_text}"),
             {
