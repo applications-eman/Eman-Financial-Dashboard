@@ -65,7 +65,7 @@
             "type": "RadioButtonsGroup",
             "label": "Customer",
             "name": "customer",
-            "required": true,
+            "required": "${data.use_ticks}",
             "visible": "${data.use_ticks}",
             "data-source": "${data.customers}"
           },
@@ -73,7 +73,7 @@
             "type": "Dropdown",
             "label": "Customer",
             "name": "customer_pick",
-            "required": true,
+            "required": "${data.use_list}",
             "visible": "${data.use_list}",
             "data-source": "${data.customers}"
           },
@@ -216,7 +216,7 @@
             "type": "RadioButtonsGroup",
             "label": "Product",
             "name": "product",
-            "required": true,
+            "required": "${data.use_ticks}",
             "visible": "${data.use_ticks}",
             "data-source": "${data.products}",
             "init-value": "${data.selected}",
@@ -233,7 +233,7 @@
             "type": "Dropdown",
             "label": "Product",
             "name": "product_pick",
-            "required": true,
+            "required": "${data.use_list}",
             "visible": "${data.use_list}",
             "data-source": "${data.products}"
           },
