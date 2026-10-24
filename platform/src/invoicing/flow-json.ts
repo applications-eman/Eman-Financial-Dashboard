@@ -20,14 +20,19 @@ export function loadBanners(): Banners | null {
   return tall && slim ? { tall, slim } : null;
 }
 
-/** A full-width banner: no fixed width, so it spans the screen; the height follows the aspect ratio (width / height of the picture). */
+/**
+ * A banner across the screen. Meta advises giving width, height and aspect ratio together (without them the preview and some
+ * phones show a square). 360 points is the width of a normal phone screen; the picture scales down on narrower ones.
+ */
 const banner = (src: string | null, aspectRatio: number) =>
   src
     ? [
         {
           type: "Image",
           src,
-          "scale-type": "cover",
+          width: 360,
+          height: Math.round(360 / aspectRatio),
+          "scale-type": "contain",
           "aspect-ratio": aspectRatio,
           "alt-text": "Eman Bakery, taste of tradition since 2007",
         },
